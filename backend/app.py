@@ -258,6 +258,93 @@ def analyze_friend_data(friend_id, session_id, user_name):
         if not friend:
             return None, "Friend not found"
         
+        # Check if this is client-side processed data
+        if session_data.get('client_processed'):
+            # For client-side processed data, return basic analysis from available data
+            total_messages = friend.get('total_messages', 0)
+            if isinstance(total_messages, str):
+                total_messages = 0
+            
+            # Get messages from client-side data if available
+            messages = friend.get('messages', [])
+            
+            # Create basic analysis
+            analysis = {
+                'friend': {
+                    'id': friend['id'],
+                    'name': friend['name']
+                },
+                'total_messages': total_messages,
+                'message_files': friend.get('message_files', 0),
+                'friendship_duration_days': 365,  # Default assumption
+                'your_percentage': 50,  # Default assumption
+                'their_avg_response': 0,  # Default assumption
+                'your_avg_response': 0,  # Default assumption
+                'most_active_hour': 12,  # Default assumption
+                'most_active_day': 'Monday',  # Default assumption
+                'top_words': [],
+                'top_emojis': [],
+                'friendship_intensity': 'medium',
+                'response_time_analysis': {
+                    'your_avg_response': 0,
+                    'their_avg_response': 0,
+                    'response_categories': {}
+                },
+                'timing_analysis': {
+                    'your_timing': {
+                        'peak_hour': 12,
+                        'peak_day': 'Monday',
+                        'time_periods': {'morning': 0, 'afternoon': 0, 'evening': 0, 'night': 0}
+                    },
+                    'their_timing': {
+                        'peak_hour': 12,
+                        'peak_day': 'Monday',
+                        'time_periods': {'morning': 0, 'afternoon': 0, 'evening': 0, 'night': 0}
+                    }
+                },
+                'content_analysis': {
+                    'your_words': [],
+                    'their_words': [],
+                    'your_emojis': [],
+                    'their_emojis': [],
+                    'shared_content': []
+                },
+                'message_length_analysis': {
+                    'your_avg_length': 0,
+                    'their_avg_length': 0
+                }
+            }
+            
+            # If we have messages, do basic analysis
+            if messages:
+                your_messages = sum(1 for msg in messages if msg.get('sender_name') == user_name)
+                their_messages = len(messages) - your_messages
+                
+                if len(messages) > 0:
+                    analysis['your_percentage'] = round((your_messages / len(messages)) * 100, 1)
+                
+                # Basic word analysis if content is available
+                your_content = [msg.get('content', '') for msg in messages if msg.get('sender_name') == user_name and msg.get('content')]
+                their_content = [msg.get('content', '') for msg in messages if msg.get('sender_name') == friend['name'] and msg.get('content')]
+                
+                if your_content:
+                    import re
+                    words = []
+                    for content in your_content:
+                        clean_words = re.findall(r'\b[a-zA-Z]+\b', content.lower())
+                        words.extend([word for word in clean_words if len(word) > 2])
+                    analysis['content_analysis']['your_words'] = Counter(words).most_common(10)
+                
+                if their_content:
+                    import re
+                    words = []
+                    for content in their_content:
+                        clean_words = re.findall(r'\b[a-zA-Z]+\b', content.lower())
+                        words.extend([word for word in clean_words if len(word) > 2])
+                    analysis['content_analysis']['their_words'] = Counter(words).most_common(10)
+            
+            return analysis, None
+        
         extract_path = os.path.join(UPLOAD_FOLDER, session_id)
         
         # Handle different file structures
@@ -683,62 +770,135 @@ def analyze_network_data(session_id, user_name):
         return None, "Session not found"
     
     friends = session_data['friends']
-    network_data = []
-    errors = []
     
-    for friend in friends:
-        try:
-            analysis, error = analyze_friend_data(friend['id'], session_id, user_name)
-            if analysis:
-                network_data.append(analysis)
-            elif error:
-                errors.append(f"{friend['name']}: {error}")
-        except Exception as e:
-            errors.append(f"{friend['name']}: {e}")
-            print(f"Error analyzing friend {friend['name']}: {e}")
-    
-    if not network_data:
-        return None, f"No network data available. Errors: {'; '.join(errors)}"
-    
-    # Sort by different metrics
-    most_messages = sorted(network_data, key=lambda x: x['total_messages'], reverse=True)[:10]
-    most_balanced = sorted(network_data, key=lambda x: abs(50 - x['your_percentage']))[:10]
-    longest_friendships = sorted(network_data, key=lambda x: x['friendship_duration_days'], reverse=True)[:10]
-    fastest_responses = sorted(network_data, key=lambda x: x['their_avg_response'])[:10]
-    
-    # Categorize friendships
-    categories = {
-        'best_friends': [],
-        'close_friends': [],
-        'regular_friends': [],
-        'occasional_friends': [],
-        'distant_friends': []
-    }
-    
-    for friend_data in network_data:
-        total_messages = friend_data['total_messages']
-        messages_per_day = total_messages / friend_data['friendship_duration_days'] if friend_data['friendship_duration_days'] > 0 else 0
+    # Check if this is client-side processed data
+    if session_data.get('client_processed'):
+        # For client-side processed data, create basic network analysis from available data
+        network_data = []
         
-        if total_messages >= 1000 and messages_per_day >= 2:
-            categories['best_friends'].append(friend_data)
-        elif total_messages >= 500 and messages_per_day >= 1:
-            categories['close_friends'].append(friend_data)
-        elif total_messages >= 200 and messages_per_day >= 0.5:
-            categories['regular_friends'].append(friend_data)
-        elif total_messages >= 50:
-            categories['occasional_friends'].append(friend_data)
-        else:
-            categories['distant_friends'].append(friend_data)
+        for friend in friends:
+            # Create basic analysis from client-side data
+            total_messages = friend.get('total_messages', 0)
+            if isinstance(total_messages, str):
+                total_messages = 0
+            
+            # Create a basic friend analysis object
+            friend_analysis = {
+                'friend': {
+                    'id': friend['id'],
+                    'name': friend['name']
+                },
+                'total_messages': total_messages,
+                'message_files': friend.get('message_files', 0),
+                'friendship_duration_days': 365,  # Default assumption
+                'your_percentage': 50,  # Default assumption
+                'their_avg_response': 0,  # Default assumption
+                'your_avg_response': 0,  # Default assumption
+                'most_active_hour': 12,  # Default assumption
+                'most_active_day': 'Monday',  # Default assumption
+                'top_words': [],
+                'top_emojis': [],
+                'friendship_intensity': 'medium'
+            }
+            network_data.append(friend_analysis)
+        
+        if not network_data:
+            return None, "No network data available from client-side processing"
+        
+        # Sort by message count
+        most_messages = sorted(network_data, key=lambda x: x['total_messages'], reverse=True)[:10]
+        
+        # Categorize friendships based on message count
+        categories = {
+            'best_friends': [],
+            'close_friends': [],
+            'regular_friends': [],
+            'occasional_friends': [],
+            'distant_friends': []
+        }
+        
+        for friend_data in network_data:
+            total_messages = friend_data['total_messages']
+            
+            if total_messages >= 1000:
+                categories['best_friends'].append(friend_data)
+            elif total_messages >= 500:
+                categories['close_friends'].append(friend_data)
+            elif total_messages >= 200:
+                categories['regular_friends'].append(friend_data)
+            elif total_messages >= 50:
+                categories['occasional_friends'].append(friend_data)
+            else:
+                categories['distant_friends'].append(friend_data)
+        
+        return {
+            'total_friends': len(network_data),
+            'total_messages': sum(f['total_messages'] for f in network_data),
+            'most_messages': most_messages,
+            'most_balanced': most_messages[:10],  # Use same as most_messages for now
+            'longest_friendships': most_messages[:10],  # Use same as most_messages for now
+            'fastest_responses': most_messages[:10],  # Use same as most_messages for now
+            'categories': categories
+        }, None
     
-    return {
-        'total_friends': len(network_data),
-        'total_messages': sum(f['total_messages'] for f in network_data),
-        'most_messages': most_messages,
-        'most_balanced': most_balanced,
-        'longest_friendships': longest_friendships,
-        'fastest_responses': fastest_responses,
-        'categories': categories
-    }, None
+    else:
+        # Original server-side processing logic
+        network_data = []
+        errors = []
+        
+        for friend in friends:
+            try:
+                analysis, error = analyze_friend_data(friend['id'], session_id, user_name)
+                if analysis:
+                    network_data.append(analysis)
+                elif error:
+                    errors.append(f"{friend['name']}: {error}")
+            except Exception as e:
+                errors.append(f"{friend['name']}: {e}")
+                print(f"Error analyzing friend {friend['name']}: {e}")
+        
+        if not network_data:
+            return None, f"No network data available. Errors: {'; '.join(errors)}"
+        
+        # Sort by different metrics
+        most_messages = sorted(network_data, key=lambda x: x['total_messages'], reverse=True)[:10]
+        most_balanced = sorted(network_data, key=lambda x: abs(50 - x['your_percentage']))[:10]
+        longest_friendships = sorted(network_data, key=lambda x: x['friendship_duration_days'], reverse=True)[:10]
+        fastest_responses = sorted(network_data, key=lambda x: x['their_avg_response'])[:10]
+        
+        # Categorize friendships
+        categories = {
+            'best_friends': [],
+            'close_friends': [],
+            'regular_friends': [],
+            'occasional_friends': [],
+            'distant_friends': []
+        }
+        
+        for friend_data in network_data:
+            total_messages = friend_data['total_messages']
+            messages_per_day = total_messages / friend_data['friendship_duration_days'] if friend_data['friendship_duration_days'] > 0 else 0
+            
+            if total_messages >= 1000 and messages_per_day >= 2:
+                categories['best_friends'].append(friend_data)
+            elif total_messages >= 500 and messages_per_day >= 1:
+                categories['close_friends'].append(friend_data)
+            elif total_messages >= 200 and messages_per_day >= 0.5:
+                categories['regular_friends'].append(friend_data)
+            elif total_messages >= 50:
+                categories['occasional_friends'].append(friend_data)
+            else:
+                categories['distant_friends'].append(friend_data)
+        
+        return {
+            'total_friends': len(network_data),
+            'total_messages': sum(f['total_messages'] for f in network_data),
+            'most_messages': most_messages,
+            'most_balanced': most_balanced,
+            'longest_friendships': longest_friendships,
+            'fastest_responses': fastest_responses,
+            'categories': categories
+        }, None
 
 @app.route('/api/upload-processed', methods=['POST'])
 def upload_processed_data():

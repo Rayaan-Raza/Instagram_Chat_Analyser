@@ -11,15 +11,19 @@ const FileUpload = () => {
   const navigate = useNavigate();
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
+  const [progressPercentage, setProgressPercentage] = useState(0);
+  const [currentStep, setCurrentStep] = useState('');
 
   const processZipClientSide = async (file) => {
-    setUploadProgress('Processing ZIP file in browser...');
+    setCurrentStep('Loading ZIP file...');
+    setProgressPercentage(5);
     
     try {
       const zip = new JSZip();
       const zipContent = await zip.loadAsync(file);
       
-      setUploadProgress('Scanning message folders...');
+      setCurrentStep('Scanning message folders...');
+      setProgressPercentage(15);
       
       // Find all message files
       const messageFiles = [];
@@ -42,13 +46,21 @@ const FileUpload = () => {
         }
       }
       
-      setUploadProgress(`Found ${friendFolders.size} friends, extracting data...`);
+      setCurrentStep(`Found ${friendFolders.size} friends, extracting data...`);
+      setProgressPercentage(30);
       
       // Process each friend folder
       const friends = [];
       let friendId = 0;
+      const totalFolders = friendFolders.size;
+      let processedFolders = 0;
       
       for (const [folderName, files] of friendFolders) {
+        // Update progress for each friend processed
+        const folderProgress = 30 + (processedFolders / totalFolders) * 50; // 30% to 80%
+        setProgressPercentage(Math.round(folderProgress));
+        setCurrentStep(`Processing ${folderName}... (${processedFolders + 1}/${totalFolders})`);
+        
         // Find the first message file to get participant info
         const firstMessageFile = files.find(f => f.endsWith('message_1.json'));
         
@@ -89,9 +101,12 @@ const FileUpload = () => {
             console.log(`Error processing ${folderName}:`, e);
           }
         }
+        
+        processedFolders++;
       }
       
-      setUploadProgress(`Processed ${friends.length} friends, uploading data...`);
+      setCurrentStep(`Processed ${friends.length} friends, uploading data...`);
+      setProgressPercentage(85);
       
       // Create a data object to send to backend
       const processedData = {
@@ -100,17 +115,28 @@ const FileUpload = () => {
         session_id: Date.now().toString()
       };
       
-             // Send processed data to backend
-       const success = await sendProcessedData(processedData);
+      setCurrentStep('Sending data to server...');
+      setProgressPercentage(90);
+      
+      // Send processed data to backend
+      const success = await sendProcessedData(processedData);
       if (success) {
-        setUploadedFiles([]);
-        setUploadProgress('');
-        navigate("/");
+        setProgressPercentage(100);
+        setCurrentStep('Complete! Redirecting...');
+        setTimeout(() => {
+          setUploadedFiles([]);
+          setUploadProgress('');
+          setProgressPercentage(0);
+          setCurrentStep('');
+          navigate("/");
+        }, 1000);
       }
       
     } catch (error) {
       console.error('Error processing ZIP:', error);
       setUploadProgress('Error processing ZIP file');
+      setCurrentStep('Error occurred during processing');
+      setProgressPercentage(0);
       setUploadedFiles([]);
     }
   };
@@ -129,12 +155,19 @@ const FileUpload = () => {
         await processZipClientSide(file);
       } else if (file.name.endsWith('.json')) {
         // Handle single JSON file
-        setUploadProgress('Processing JSON file...');
+        setCurrentStep('Processing JSON file...');
+        setProgressPercentage(50);
         const success = await uploadFile(file);
         if (success) {
-          setUploadedFiles([]);
-          setUploadProgress('');
-          navigate("/");
+          setProgressPercentage(100);
+          setCurrentStep('Complete! Redirecting...');
+          setTimeout(() => {
+            setUploadedFiles([]);
+            setUploadProgress('');
+            setProgressPercentage(0);
+            setCurrentStep('');
+            navigate("/");
+          }, 1000);
         }
       }
     }
@@ -153,6 +186,8 @@ const FileUpload = () => {
   const removeFile = () => {
     setUploadedFiles([]);
     setUploadProgress('');
+    setProgressPercentage(0);
+    setCurrentStep('');
   };
 
   return (
@@ -245,30 +280,51 @@ const FileUpload = () => {
         )}
       </div>
 
-      {/* Loading State with Progress */}
-      {isLoading && (
+      {/* Loading State with Progress Bar */}
+      {(isLoading || progressPercentage > 0) && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="mt-6 space-y-4"
         >
-          <div className="flex items-center justify-center space-x-2 text-primary-600">
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-600"></div>
-            <span className="font-medium">Processing your messages...</span>
+          {/* Progress Bar */}
+          <div className="bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
+            <motion.div
+              className="h-full bg-gradient-to-r from-primary-500 to-primary-600 rounded-full"
+              initial={{ width: 0 }}
+              animate={{ width: `${progressPercentage}%` }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+            />
           </div>
           
-          {uploadProgress && (
-            <div className="text-center">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                {uploadProgress}
-              </p>
-              <div className="flex items-center justify-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
-                <Clock className="h-3 w-3" />
-                <span>Processing in your browser - no server upload!</span>
-              </div>
+          {/* Progress Text */}
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center space-x-2 text-primary-600">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-600"></div>
+              <span className="font-medium">
+                {progressPercentage === 100 ? 'Complete!' : 'Processing your messages...'}
+              </span>
             </div>
-          )}
+            
+            {currentStep && (
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {currentStep}
+              </p>
+            )}
+            
+            {progressPercentage > 0 && progressPercentage < 100 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {progressPercentage}% complete
+              </p>
+            )}
+            
+            <div className="flex items-center justify-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
+              <Clock className="h-3 w-3" />
+              <span>Processing in your browser - no server upload!</span>
+            </div>
+          </div>
           
+          {/* Progress Details */}
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <div className="flex items-start space-x-3">
               <BarChart3 className="h-5 w-5 text-blue-600 mt-0.5" />
