@@ -155,15 +155,27 @@ instagram-analyzer/
 1. **Get your Instagram data:**
    - Go to Instagram Settings → Privacy and Security → Data Download
    - Request your data and wait for the email
-   - Download the ZIP file
+   - Download the ZIP file and extract it
 
-2. **Upload and analyze:**
+2. **Choose your upload method:**
+
+   **Option 1: Messages Folder (Recommended)**
+   - Navigate to: `your_instagram_activity/messages/`
+   - Zip the entire `messages` folder
+   - Upload the ZIP file
+
+   **Option 2: Individual Files**
+   - Navigate to: `your_instagram_activity/messages/inbox/[friend_name]/`
+   - Select multiple `message_*.json` files
+   - Upload them directly
+
+3. **Upload and analyze:**
    - Open the web application
    - Enter your name as it appears in Instagram
-   - Drag and drop your ZIP file
-   - Wait for analysis to complete
+   - Upload your files using either method
+   - Wait for analysis to complete (much faster now!)
 
-3. **Explore insights:**
+4. **Explore insights:**
    - View dashboard overview
    - Analyze individual friendships
    - Explore social network patterns

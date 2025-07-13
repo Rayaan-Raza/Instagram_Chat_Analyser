@@ -10,13 +10,16 @@ from collections import Counter
 import emoji
 from pathlib import Path
 import tempfile
+import gc
+import psutil
 
 app = Flask(__name__)
 CORS(app)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
-MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB max file size
+MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # Reduced to 50MB max file size
+MAX_MESSAGES_PER_FRIEND = 1000  # Limit messages per friend to prevent memory issues
 
 # Ensure upload directory exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -24,47 +27,123 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Store session data (in production, use Redis or database)
 sessions = {}
 
-def extract_instagram_data(zip_path, session_id, user_name):
-    """Extract and parse Instagram data from ZIP file."""
+def log_memory_usage(stage):
+    """Log memory usage for debugging."""
+    process = psutil.Process(os.getpid())
+    memory_mb = process.memory_info().rss / 1024 / 1024
+    print(f"Memory usage at {stage}: {memory_mb:.2f} MB")
+
+def extract_messages_from_zip(zip_path, session_id, user_name):
+    """Extract and parse Instagram messages from a ZIP file containing only the messages folder."""
     extract_path = os.path.join(UPLOAD_FOLDER, session_id)
     
     try:
+        log_memory_usage("start of messages extraction")
+        
         # Extract ZIP file
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_path)
         
-        # Find inbox folder
-        inbox_path = Path(extract_path) / "your_instagram_activity" / "messages" / "inbox"
+        log_memory_usage("after zip extraction")
         
-        if not inbox_path.exists():
-            return None, "Could not find messages inbox folder"
+        # Look for inbox folder in different possible locations
+        possible_inbox_paths = [
+            Path(extract_path) / "messages" / "inbox",
+            Path(extract_path) / "inbox",
+            Path(extract_path) / "your_instagram_activity" / "messages" / "inbox"
+        ]
         
-        # Extract friends list
+        inbox_path = None
+        for path in possible_inbox_paths:
+            if path.exists():
+                inbox_path = path
+                break
+        
+        if not inbox_path:
+            return None, "Could not find messages inbox folder. Please ensure you're uploading the messages folder from your Instagram data."
+        
+        # Extract friends list with memory optimization
         friends = []
         added_names = set()
-        for chat_folder in inbox_path.iterdir():
-            if chat_folder.is_dir():
-                message_files = list(chat_folder.glob("message_*.json"))
-                if message_files:
-                    try:
-                        with open(message_files[0], 'r', encoding='utf-8') as f:
-                            chat_data = json.load(f)
-                        # Only include one-to-one chats (exactly 2 participants: user and one other)
-                        if 'participants' in chat_data and len(chat_data['participants']) == 2:
-                            for participant in chat_data['participants']:
-                                if 'name' in participant:
-                                    friend_name = participant['name']
-                                    if friend_name != user_name and friend_name not in added_names:
-                                        friends.append({
-                                            'id': len(friends),
-                                            'name': friend_name,
-                                            'chat_folder': chat_folder.name
-                                        })
-                                        added_names.add(friend_name)
-                    except Exception as e:
-                        print(f"Error reading {message_files[0]}: {e}")
-                        continue
+        chat_folders = list(inbox_path.iterdir())
         
+        # Process in smaller batches
+        batch_size = 10
+        for i in range(0, len(chat_folders), batch_size):
+            batch = chat_folders[i:i + batch_size]
+            
+            for chat_folder in batch:
+                if chat_folder.is_dir():
+                    message_files = list(chat_folder.glob("message_*.json"))
+                    if message_files:
+                        try:
+                            with open(message_files[0], 'r', encoding='utf-8') as f:
+                                chat_data = json.load(f)
+                            # Only include one-to-one chats (exactly 2 participants: user and one other)
+                            if 'participants' in chat_data and len(chat_data['participants']) == 2:
+                                for participant in chat_data['participants']:
+                                    if 'name' in participant:
+                                        friend_name = participant['name']
+                                        if friend_name != user_name and friend_name not in added_names:
+                                            friends.append({
+                                                'id': len(friends),
+                                                'name': friend_name,
+                                                'chat_folder': chat_folder.name
+                                            })
+                                            added_names.add(friend_name)
+                        except Exception as e:
+                            print(f"Error reading {message_files[0]}: {e}")
+                            continue
+            
+            # Force garbage collection after each batch
+            gc.collect()
+            log_memory_usage(f"after processing batch {i//batch_size + 1}")
+        
+        log_memory_usage("end of messages extraction")
+        return friends, None
+        
+    except Exception as e:
+        return None, str(e)
+
+def extract_from_json_files(file, session_id, user_name):
+    """Extract data from individual JSON files uploaded directly."""
+    try:
+        log_memory_usage("start of JSON file processing")
+        
+        # Create session directory
+        session_path = os.path.join(UPLOAD_FOLDER, session_id)
+        os.makedirs(session_path, exist_ok=True)
+        
+        # Save the uploaded file
+        file_path = os.path.join(session_path, file.filename)
+        file.save(file_path)
+        
+        # Try to parse the JSON file
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                chat_data = json.load(f)
+        except Exception as e:
+            return None, f"Invalid JSON file: {str(e)}"
+        
+        # Extract friend information
+        friends = []
+        if 'participants' in chat_data and len(chat_data['participants']) == 2:
+            for participant in chat_data['participants']:
+                if 'name' in participant:
+                    friend_name = participant['name']
+                    if friend_name != user_name:
+                        friends.append({
+                            'id': 0,
+                            'name': friend_name,
+                            'chat_folder': 'direct_upload',
+                            'file_path': file_path
+                        })
+                        break  # Only take the first friend
+        
+        if not friends:
+            return None, "No valid friend found in the uploaded file"
+        
+        log_memory_usage("end of JSON file processing")
         return friends, None
         
     except Exception as e:
@@ -83,15 +162,48 @@ def analyze_friend_data(friend_id, session_id, user_name):
             return None, "Friend not found"
         
         extract_path = os.path.join(UPLOAD_FOLDER, session_id)
-        inbox_path = Path(extract_path) / "your_instagram_activity" / "messages" / "inbox"
-        chat_folder = inbox_path / friend['chat_folder']
         
-        if not chat_folder.exists():
-            return None, "Chat folder not found"
+        # Handle different file structures
+        if friend.get('chat_folder') == 'direct_upload':
+            # Direct JSON file upload
+            file_path = friend.get('file_path')
+            if not file_path or not os.path.exists(file_path):
+                return None, "Uploaded file not found"
+            
+            # Read the single JSON file
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    chat_data = json.load(f)
+                all_messages = chat_data.get('messages', [])
+            except Exception as e:
+                return None, f"Error reading uploaded file: {str(e)}"
+        else:
+            # ZIP file structure - find inbox folder
+            possible_inbox_paths = [
+                Path(extract_path) / "messages" / "inbox",
+                Path(extract_path) / "inbox",
+                Path(extract_path) / "your_instagram_activity" / "messages" / "inbox"
+            ]
+            
+            inbox_path = None
+            for path in possible_inbox_paths:
+                if path.exists():
+                    inbox_path = path
+                    break
+            
+            if not inbox_path:
+                return None, "Messages folder not found"
+            
+            chat_folder = inbox_path / friend['chat_folder']
+            
+            if not chat_folder.exists():
+                return None, "Chat folder not found"
         
-        # Collect all messages
+        # Collect all messages with memory optimization
         all_messages = []
         message_files = sorted(chat_folder.glob("message_*.json"))
+        
+        log_memory_usage("start of friend analysis")
         
         for msg_file in message_files:
             try:
@@ -99,6 +211,12 @@ def analyze_friend_data(friend_id, session_id, user_name):
                     chat_data = json.load(f)
                 if 'messages' in chat_data:
                     all_messages.extend(chat_data['messages'])
+                    
+                    # Limit messages to prevent memory issues
+                    if len(all_messages) > MAX_MESSAGES_PER_FRIEND:
+                        all_messages = all_messages[-MAX_MESSAGES_PER_FRIEND:]
+                        print(f"Limited messages to {MAX_MESSAGES_PER_FRIEND} for {friend['name']}")
+                        break
             except Exception as e:
                 print(f"Error reading {msg_file}: {e}")
                 continue
@@ -526,36 +644,83 @@ def upload_file():
     if file.filename == '':
         return jsonify({'success': False, 'error': 'No file selected'})
     
-    if not file.filename.endswith('.zip'):
-        return jsonify({'success': False, 'error': 'Please upload a ZIP file'})
+    # Accept both ZIP files and direct messages folder
+    if not (file.filename.endswith('.zip') or file.filename.endswith('.json')):
+        return jsonify({'success': False, 'error': 'Please upload a ZIP file containing messages folder or individual message JSON files'})
     
     # Generate session ID
     session_id = str(uuid.uuid4())
     
-    # Save uploaded file
-    zip_path = os.path.join(UPLOAD_FOLDER, f"{session_id}.zip")
-    file.save(zip_path)
-    
-    # Extract and analyze data
-    friends, error = extract_instagram_data(zip_path, session_id, user_name)
-    
-    if error:
-        # Cleanup
+    try:
+        log_memory_usage("before upload processing")
+        
+        if file.filename.endswith('.zip'):
+            # Handle ZIP file (messages folder)
+            zip_path = os.path.join(UPLOAD_FOLDER, f"{session_id}.zip")
+            file.save(zip_path)
+            
+            # Extract and analyze data with progress tracking
+            print(f"Starting analysis for session {session_id}")
+            log_memory_usage("before extraction")
+            
+            friends, error = extract_messages_from_zip(zip_path, session_id, user_name)
+            
+            # Clean up ZIP file
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+                
+        else:
+            # Handle individual JSON files (direct upload)
+            friends, error = extract_from_json_files(file, session_id, user_name)
+        
+        if error:
+            return jsonify({'success': False, 'error': error})
+        
+        # Force garbage collection
+        gc.collect()
+        log_memory_usage("after extraction")
+        
+        # Store session data
+        sessions[session_id] = {
+            'user_name': user_name,
+            'friends': friends,
+            'created_at': datetime.now().isoformat(),
+            'analysis_complete': True
+        }
+        
+        print(f"Analysis complete for session {session_id}. Found {len(friends)} friends.")
+        
+        # Final cleanup
+        gc.collect()
+        log_memory_usage("end of upload")
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'friends': friends,
+            'message': f'Analysis complete! Found {len(friends)} friends to analyze.'
+        })
+        
+    except Exception as e:
+        print(f"Error during upload/analysis: {str(e)}")
+        # Cleanup on error
+        zip_path = os.path.join(UPLOAD_FOLDER, f"{session_id}.zip")
         if os.path.exists(zip_path):
             os.remove(zip_path)
-        return jsonify({'success': False, 'error': error})
-    
-    # Store session data
-    sessions[session_id] = {
-        'user_name': user_name,
-        'friends': friends,
-        'created_at': datetime.now().isoformat()
-    }
+        return jsonify({'success': False, 'error': f'Analysis failed: {str(e)}'})
+
+@app.route('/api/progress/<session_id>', methods=['GET'])
+def get_progress(session_id):
+    """Get analysis progress for a session."""
+    session_data = sessions.get(session_id)
+    if not session_data:
+        return jsonify({'success': False, 'error': 'Session not found'})
     
     return jsonify({
         'success': True,
-        'session_id': session_id,
-        'friends': friends
+        'status': 'complete' if session_data.get('analysis_complete') else 'processing',
+        'friends_count': len(session_data.get('friends', [])),
+        'created_at': session_data.get('created_at')
     })
 
 @app.route('/api/analysis/<friend_id>', methods=['GET'])
