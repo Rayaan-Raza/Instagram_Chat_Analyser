@@ -46,76 +46,89 @@ def log_memory_usage(stage):
     print(f"Memory usage at {stage}: {memory_mb:.2f} MB")
 
 def extract_messages_from_zip(zip_path, session_id, user_name):
-    """Extract and parse Instagram messages from a ZIP file - ULTRA FAST VERSION."""
-    extract_path = os.path.join(UPLOAD_FOLDER, session_id)
-    
+    """Process ZIP file directly without extracting - ULTRA FAST VERSION."""
     try:
-        log_memory_usage("start of ultra-fast extraction")
+        log_memory_usage("start of direct ZIP processing")
         
-        # Extract ZIP file
+        # Process ZIP directly without extracting
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_path)
-        
-        log_memory_usage("after zip extraction")
-        
-        # Look for inbox folder in different possible locations
-        possible_inbox_paths = [
-            Path(extract_path) / "messages" / "inbox",
-            Path(extract_path) / "inbox",
-            Path(extract_path) / "your_instagram_activity" / "messages" / "inbox"
-        ]
-        
-        inbox_path = None
-        for path in possible_inbox_paths:
-            if path.exists():
-                inbox_path = path
-                break
-        
-        if not inbox_path:
-            return None, "Could not find messages inbox folder. Please ensure you're uploading the messages folder from your Instagram data."
-        
-        # ULTRA FAST: Only extract friend names and file structure
-        friends = []
-        added_names = set()
-        chat_folders = list(inbox_path.iterdir())
-        
-        print(f"Found {len(chat_folders)} chat folders")
-        
-        for chat_folder in chat_folders:
-            if chat_folder.is_dir():
-                # Just check if there are message files - don't read them
-                message_files = list(chat_folder.glob("message_*.json"))
+            # Get list of all files in the ZIP
+            file_list = zip_ref.namelist()
+            
+            # Find inbox folders
+            inbox_files = [f for f in file_list if 'messages/inbox/' in f or 'inbox/' in f]
+            
+            if not inbox_files:
+                return None, "Could not find messages inbox folder. Please ensure you're uploading the messages folder from your Instagram data."
+            
+            # Extract friend list from folder structure
+            friends = []
+            added_names = set()
+            
+            # Group files by chat folder
+            chat_folders = {}
+            for file_path in inbox_files:
+                # Extract folder name from path
+                parts = file_path.split('/')
+                if len(parts) >= 3:
+                    # Find the inbox folder and the chat folder after it
+                    try:
+                        inbox_index = parts.index('inbox')
+                        if inbox_index + 1 < len(parts):
+                            chat_folder = parts[inbox_index + 1]
+                            if chat_folder not in chat_folders:
+                                chat_folders[chat_folder] = []
+                            chat_folders[chat_folder].append(file_path)
+                    except ValueError:
+                        continue
+            
+            print(f"Found {len(chat_folders)} chat folders")
+            
+            # Process each chat folder
+            for folder_name, files in chat_folders.items():
+                message_files = [f for f in files if f.endswith('message_1.json')]
+                
                 if message_files:
-                    # Get folder name as friend identifier
-                    folder_name = chat_folder.name
-                    
-                    # Try to extract friend name from folder name (Instagram format)
-                    # Folder names are usually: friend_name_123456789
-                    friend_name = folder_name
-                    if '_' in folder_name:
-                        # Remove the numeric part
-                        parts = folder_name.split('_')
-                        if len(parts) > 1 and parts[-1].isdigit():
-                            friend_name = '_'.join(parts[:-1])
-                        else:
-                            friend_name = folder_name
-                    
-                    # Clean up the name
-                    friend_name = friend_name.replace('_', ' ').title()
-                    
-                    if friend_name not in added_names:
-                        friends.append({
-                            'id': len(friends),
-                            'name': friend_name,
-                            'chat_folder': folder_name,
-                            'message_files': len(message_files),
-                            'total_messages': 'Unknown',  # Will be calculated on demand
-                            'analyzed': False
-                        })
-                        added_names.add(friend_name)
+                    # Try to read the first message file to get participant info
+                    try:
+                        with zip_ref.open(message_files[0]) as f:
+                            chat_data = json.load(f)
+                        
+                        # Only include one-to-one chats
+                        if 'participants' in chat_data and len(chat_data['participants']) == 2:
+                            for participant in chat_data['participants']:
+                                if 'name' in participant:
+                                    friend_name = participant['name']
+                                    if friend_name != user_name and friend_name not in added_names:
+                                        friends.append({
+                                            'id': len(friends),
+                                            'name': friend_name,
+                                            'chat_folder': folder_name,
+                                            'message_files': len([f for f in files if 'message_' in f]),
+                                            'total_messages': 'Unknown',
+                                            'analyzed': False,
+                                            'zip_path': zip_path  # Store ZIP path for later access
+                                        })
+                                        added_names.add(friend_name)
+                                        break  # Only take the first friend
+                    except Exception as e:
+                        print(f"Error reading {message_files[0]}: {e}")
+                        # Fallback: use folder name
+                        friend_name = folder_name.replace('_', ' ').title()
+                        if friend_name not in added_names:
+                            friends.append({
+                                'id': len(friends),
+                                'name': friend_name,
+                                'chat_folder': folder_name,
+                                'message_files': len([f for f in files if 'message_' in f]),
+                                'total_messages': 'Unknown',
+                                'analyzed': False,
+                                'zip_path': zip_path
+                            })
+                            added_names.add(friend_name)
         
-        log_memory_usage("end of ultra-fast extraction")
-        print(f"Extracted {len(friends)} friends in ultra-fast mode")
+        log_memory_usage("end of direct ZIP processing")
+        print(f"Extracted {len(friends)} friends from ZIP without extraction")
         return friends, None
         
     except Exception as e:
@@ -133,60 +146,49 @@ def get_friend_details(friend_id, session_id, user_name):
         if not friend:
             return None, "Friend not found"
         
-        extract_path = os.path.join(UPLOAD_FOLDER, session_id)
-        
-        # Find inbox folder
-        possible_inbox_paths = [
-            Path(extract_path) / "messages" / "inbox",
-            Path(extract_path) / "inbox",
-            Path(extract_path) / "your_instagram_activity" / "messages" / "inbox"
-        ]
-        
-        inbox_path = None
-        for path in possible_inbox_paths:
-            if path.exists():
-                inbox_path = path
-                break
-        
-        if not inbox_path:
-            return None, "Messages folder not found"
-        
-        chat_folder = inbox_path / friend['chat_folder']
-        
-        if not chat_folder.exists():
-            return None, "Chat folder not found"
-        
-        # Read first message file to get real participant names
-        message_files = sorted(chat_folder.glob("message_*.json"))
-        if not message_files:
-            return None, "No message files found"
+        # Read directly from ZIP file
+        zip_path = friend.get('zip_path')
+        if not zip_path or not os.path.exists(zip_path):
+            return None, "ZIP file not found"
         
         try:
-            with open(message_files[0], 'r', encoding='utf-8') as f:
-                chat_data = json.load(f)
-            
-            # Get real participant names
-            real_friend_name = friend['name']  # Default to folder name
-            total_messages = 0
-            
-            if 'participants' in chat_data and len(chat_data['participants']) == 2:
-                for participant in chat_data['participants']:
-                    if 'name' in participant:
-                        participant_name = participant['name']
-                        if participant_name != user_name:
-                            real_friend_name = participant_name
-                            break
-            
-            # Count total messages across all files
-            for msg_file in message_files:
-                try:
-                    with open(msg_file, 'r', encoding='utf-8') as f:
-                        file_data = json.load(f)
-                    if 'messages' in file_data:
-                        total_messages += len(file_data['messages'])
-                except Exception as e:
-                    print(f"Error reading {msg_file}: {e}")
-                    continue
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                # Find all message files for this friend
+                chat_folder_prefix = f"messages/inbox/{friend['chat_folder']}/"
+                message_files = [f for f in zip_ref.namelist() if f.startswith(chat_folder_prefix) and 'message_' in f]
+                
+                if not message_files:
+                    return None, "No message files found"
+                
+                # Read first message file to get real participant names
+                message_files.sort()
+                first_file = message_files[0]
+                
+                with zip_ref.open(first_file) as f:
+                    chat_data = json.load(f)
+                
+                # Get real participant names
+                real_friend_name = friend['name']  # Default to folder name
+                total_messages = 0
+                
+                if 'participants' in chat_data and len(chat_data['participants']) == 2:
+                    for participant in chat_data['participants']:
+                        if 'name' in participant:
+                            participant_name = participant['name']
+                            if participant_name != user_name:
+                                real_friend_name = participant_name
+                                break
+                
+                # Count total messages across all files
+                for msg_file in message_files:
+                    try:
+                        with zip_ref.open(msg_file) as f:
+                            file_data = json.load(f)
+                        if 'messages' in file_data:
+                            total_messages += len(file_data['messages'])
+                    except Exception as e:
+                        print(f"Error reading {msg_file}: {e}")
+                        continue
             
             return {
                 'real_name': real_friend_name,
@@ -273,61 +275,56 @@ def analyze_friend_data(friend_id, session_id, user_name):
             except Exception as e:
                 return None, f"Error reading uploaded file: {str(e)}"
         else:
-            # ZIP file structure - find inbox folder
-            possible_inbox_paths = [
-                Path(extract_path) / "messages" / "inbox",
-                Path(extract_path) / "inbox",
-                Path(extract_path) / "your_instagram_activity" / "messages" / "inbox"
-            ]
+            # Read directly from ZIP file
+            zip_path = friend.get('zip_path')
+            if not zip_path or not os.path.exists(zip_path):
+                return None, "ZIP file not found"
             
-            inbox_path = None
-            for path in possible_inbox_paths:
-                if path.exists():
-                    inbox_path = path
-                    break
-            
-            if not inbox_path:
-                return None, "Messages folder not found"
-            
-            chat_folder = inbox_path / friend['chat_folder']
-            
-            if not chat_folder.exists():
-                return None, "Chat folder not found"
-        
-        # Collect messages with smart sampling for faster processing
-        all_messages = []
-        message_files = sorted(chat_folder.glob("message_*.json"))
-        
-        log_memory_usage("start of friend analysis")
-        
-        # Smart sampling: take recent messages and sample older ones
-        total_files = len(message_files)
-        if total_files > 5:
-            # Take all recent files (last 3) and sample older ones
-            recent_files = message_files[-3:]
-            older_files = message_files[:-3]
-            
-            # Sample older files (take every 3rd file)
-            sampled_older = older_files[::3]
-            files_to_process = recent_files + sampled_older
-        else:
-            files_to_process = message_files
-        
-        for msg_file in files_to_process:
+            # Read messages directly from ZIP
+            all_messages = []
             try:
-                with open(msg_file, 'r', encoding='utf-8') as f:
-                    chat_data = json.load(f)
-                if 'messages' in chat_data:
-                    all_messages.extend(chat_data['messages'])
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    # Find all message files for this friend
+                    chat_folder_prefix = f"messages/inbox/{friend['chat_folder']}/"
+                    message_files = [f for f in zip_ref.namelist() if f.startswith(chat_folder_prefix) and 'message_' in f]
                     
-                    # Limit messages to prevent memory issues
-                    if len(all_messages) > MAX_MESSAGES_PER_FRIEND:
-                        all_messages = all_messages[-MAX_MESSAGES_PER_FRIEND:]
-                        print(f"Limited messages to {MAX_MESSAGES_PER_FRIEND} for {friend['name']}")
-                        break
+                    # Sort message files
+                    message_files.sort()
+                    
+                    # Smart sampling: take recent files and sample older ones
+                    total_files = len(message_files)
+                    if total_files > 5:
+                        # Take all recent files (last 3) and sample older ones
+                        recent_files = message_files[-3:]
+                        older_files = message_files[:-3]
+                        
+                        # Sample older files (take every 3rd file)
+                        sampled_older = older_files[::3]
+                        files_to_process = recent_files + sampled_older
+                    else:
+                        files_to_process = message_files
+                    
+                    for msg_file in files_to_process:
+                        try:
+                            with zip_ref.open(msg_file) as f:
+                                chat_data = json.load(f)
+                            if 'messages' in chat_data:
+                                all_messages.extend(chat_data['messages'])
+                                
+                                # Limit messages to prevent memory issues
+                                if len(all_messages) > MAX_MESSAGES_PER_FRIEND:
+                                    all_messages = all_messages[-MAX_MESSAGES_PER_FRIEND:]
+                                    print(f"Limited messages to {MAX_MESSAGES_PER_FRIEND} for {friend['name']}")
+                                    break
+                        except Exception as e:
+                            print(f"Error reading {msg_file}: {e}")
+                            continue
+                            
             except Exception as e:
-                print(f"Error reading {msg_file}: {e}")
-                continue
+                return None, f"Error reading from ZIP: {str(e)}"
+        
+        # Messages are already collected from ZIP above
+        log_memory_usage("start of friend analysis")
         
         if not all_messages:
             return None, "No messages found"

@@ -270,7 +270,7 @@ const FileUpload = () => {
               </p>
               <div className="flex items-center justify-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
                 <Clock className="h-3 w-3" />
-                <span>Ultra-fast processing - should complete instantly!</span>
+                <span>Lightning fast - no file extraction needed!</span>
               </div>
             </div>
           )}
@@ -283,10 +283,10 @@ const FileUpload = () => {
                   What's happening?
                 </p>
                 <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                  <li>• Extracting file structure</li>
-                  <li>• Building friend list</li>
-                  <li>• Ready for instant browsing</li>
-                  <li>• Analysis loads when you click</li>
+                  <li>• Reading ZIP directly (no extraction)</li>
+                  <li>• Scanning message folders</li>
+                  <li>• Building friend list instantly</li>
+                  <li>• Ready to browse immediately</li>
                 </ul>
               </div>
             </div>
