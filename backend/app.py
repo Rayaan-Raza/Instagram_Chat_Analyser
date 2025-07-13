@@ -46,11 +46,11 @@ def log_memory_usage(stage):
     print(f"Memory usage at {stage}: {memory_mb:.2f} MB")
 
 def extract_messages_from_zip(zip_path, session_id, user_name):
-    """Extract and parse Instagram messages from a ZIP file containing only the messages folder."""
+    """Extract and parse Instagram messages from a ZIP file - ULTRA FAST VERSION."""
     extract_path = os.path.join(UPLOAD_FOLDER, session_id)
     
     try:
-        log_memory_usage("start of messages extraction")
+        log_memory_usage("start of ultra-fast extraction")
         
         # Extract ZIP file
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -74,54 +74,129 @@ def extract_messages_from_zip(zip_path, session_id, user_name):
         if not inbox_path:
             return None, "Could not find messages inbox folder. Please ensure you're uploading the messages folder from your Instagram data."
         
-        # Extract friends list with minimal processing (lazy loading)
+        # ULTRA FAST: Only extract friend names and file structure
         friends = []
         added_names = set()
         chat_folders = list(inbox_path.iterdir())
         
-        # Process in smaller batches
-        batch_size = 20  # Increased batch size for faster processing
-        for i in range(0, len(chat_folders), batch_size):
-            batch = chat_folders[i:i + batch_size]
-            
-            for chat_folder in batch:
-                if chat_folder.is_dir():
-                    message_files = list(chat_folder.glob("message_*.json"))
-                    if message_files:
-                        try:
-                            # Only read the first message file to get participant info
-                            with open(message_files[0], 'r', encoding='utf-8') as f:
-                                chat_data = json.load(f)
-                            # Only include one-to-one chats (exactly 2 participants: user and one other)
-                            if 'participants' in chat_data and len(chat_data['participants']) == 2:
-                                for participant in chat_data['participants']:
-                                    if 'name' in participant:
-                                        friend_name = participant['name']
-                                        if friend_name != user_name and friend_name not in added_names:
-                                            # Get basic stats without full analysis
-                                            total_messages = 0
-                                            if 'messages' in chat_data:
-                                                total_messages = len(chat_data['messages'])
-                                            
-                                            friends.append({
-                                                'id': len(friends),
-                                                'name': friend_name,
-                                                'chat_folder': chat_folder.name,
-                                                'total_messages': total_messages,
-                                                'analyzed': False  # Mark as not analyzed yet
-                                            })
-                                            added_names.add(friend_name)
-                        except Exception as e:
-                            print(f"Error reading {message_files[0]}: {e}")
-                            continue
-            
-            # Force garbage collection after each batch
-            gc.collect()
-            log_memory_usage(f"after processing batch {i//batch_size + 1}")
+        print(f"Found {len(chat_folders)} chat folders")
         
-        log_memory_usage("end of messages extraction")
+        for chat_folder in chat_folders:
+            if chat_folder.is_dir():
+                # Just check if there are message files - don't read them
+                message_files = list(chat_folder.glob("message_*.json"))
+                if message_files:
+                    # Get folder name as friend identifier
+                    folder_name = chat_folder.name
+                    
+                    # Try to extract friend name from folder name (Instagram format)
+                    # Folder names are usually: friend_name_123456789
+                    friend_name = folder_name
+                    if '_' in folder_name:
+                        # Remove the numeric part
+                        parts = folder_name.split('_')
+                        if len(parts) > 1 and parts[-1].isdigit():
+                            friend_name = '_'.join(parts[:-1])
+                        else:
+                            friend_name = folder_name
+                    
+                    # Clean up the name
+                    friend_name = friend_name.replace('_', ' ').title()
+                    
+                    if friend_name not in added_names:
+                        friends.append({
+                            'id': len(friends),
+                            'name': friend_name,
+                            'chat_folder': folder_name,
+                            'message_files': len(message_files),
+                            'total_messages': 'Unknown',  # Will be calculated on demand
+                            'analyzed': False
+                        })
+                        added_names.add(friend_name)
+        
+        log_memory_usage("end of ultra-fast extraction")
+        print(f"Extracted {len(friends)} friends in ultra-fast mode")
         return friends, None
         
+    except Exception as e:
+        return None, str(e)
+
+def get_friend_details(friend_id, session_id, user_name):
+    """Get real friend details on-demand."""
+    try:
+        session_data = sessions.get(session_id)
+        if not session_data:
+            return None, "Session not found"
+        
+        friends = session_data['friends']
+        friend = next((f for f in friends if f['id'] == int(friend_id)), None)
+        if not friend:
+            return None, "Friend not found"
+        
+        extract_path = os.path.join(UPLOAD_FOLDER, session_id)
+        
+        # Find inbox folder
+        possible_inbox_paths = [
+            Path(extract_path) / "messages" / "inbox",
+            Path(extract_path) / "inbox",
+            Path(extract_path) / "your_instagram_activity" / "messages" / "inbox"
+        ]
+        
+        inbox_path = None
+        for path in possible_inbox_paths:
+            if path.exists():
+                inbox_path = path
+                break
+        
+        if not inbox_path:
+            return None, "Messages folder not found"
+        
+        chat_folder = inbox_path / friend['chat_folder']
+        
+        if not chat_folder.exists():
+            return None, "Chat folder not found"
+        
+        # Read first message file to get real participant names
+        message_files = sorted(chat_folder.glob("message_*.json"))
+        if not message_files:
+            return None, "No message files found"
+        
+        try:
+            with open(message_files[0], 'r', encoding='utf-8') as f:
+                chat_data = json.load(f)
+            
+            # Get real participant names
+            real_friend_name = friend['name']  # Default to folder name
+            total_messages = 0
+            
+            if 'participants' in chat_data and len(chat_data['participants']) == 2:
+                for participant in chat_data['participants']:
+                    if 'name' in participant:
+                        participant_name = participant['name']
+                        if participant_name != user_name:
+                            real_friend_name = participant_name
+                            break
+            
+            # Count total messages across all files
+            for msg_file in message_files:
+                try:
+                    with open(msg_file, 'r', encoding='utf-8') as f:
+                        file_data = json.load(f)
+                    if 'messages' in file_data:
+                        total_messages += len(file_data['messages'])
+                except Exception as e:
+                    print(f"Error reading {msg_file}: {e}")
+                    continue
+            
+            return {
+                'real_name': real_friend_name,
+                'total_messages': total_messages,
+                'message_files': len(message_files)
+            }, None
+            
+        except Exception as e:
+            return None, f"Error reading message file: {str(e)}"
+            
     except Exception as e:
         return None, str(e)
 
@@ -745,6 +820,27 @@ def upload_file():
             os.remove(zip_path)
         return jsonify({'success': False, 'error': f'Analysis failed: {str(e)}'})
 
+@app.route('/api/friend-details/<friend_id>', methods=['GET'])
+def get_friend_details_endpoint(friend_id):
+    """Get detailed friend information on-demand."""
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return jsonify({'success': False, 'error': 'Session ID required'})
+    
+    session_data = sessions.get(session_id)
+    if not session_data:
+        return jsonify({'success': False, 'error': 'Session not found'})
+    
+    details, error = get_friend_details(friend_id, session_id, session_data['user_name'])
+    
+    if error:
+        return jsonify({'success': False, 'error': error})
+    
+    return jsonify({
+        'success': True,
+        'details': details
+    })
+
 @app.route('/api/quick-stats/<friend_id>', methods=['GET'])
 def get_quick_stats(friend_id):
     """Get quick stats for a friend without full analysis."""
@@ -766,7 +862,8 @@ def get_quick_stats(friend_id):
         'success': True,
         'quick_stats': {
             'name': friend['name'],
-            'total_messages': friend.get('total_messages', 0),
+            'message_files': friend.get('message_files', 0),
+            'total_messages': friend.get('total_messages', 'Unknown'),
             'analyzed': friend.get('analyzed', False)
         }
     })

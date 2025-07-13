@@ -111,6 +111,25 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+  const getFriendDetails = async (friendId) => {
+    if (!sessionId) return;
+
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/friend-details/${friendId}?session_id=${sessionId}`);
+      
+      if (response.data.success) {
+        return response.data.details;
+      } else {
+        toast.error(response.data.error || 'Failed to get friend details');
+        return null;
+      }
+    } catch (error) {
+      console.error('Friend details error:', error);
+      toast.error(error.response?.data?.error || 'Failed to get friend details');
+      return null;
+    }
+  };
+
   const getQuickStats = async (friendId) => {
     if (!sessionId) return;
 
@@ -150,6 +169,7 @@ export const DataProvider = ({ children }) => {
     sessionId,
     uploadFile,
     getFriendAnalysis,
+    getFriendDetails,
     getQuickStats,
     getNetworkAnalysis,
     clearData,
