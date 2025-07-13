@@ -7,107 +7,138 @@ import { Upload, File, X, CheckCircle, Clock, BarChart3, Folder, FileText } from
 import { useData } from '../contexts/DataContext';
 
 const FileUpload = () => {
-  const { uploadFile, isLoading, setUserName } = useData();
+  const { uploadFile, uploadProcessedData, isLoading, setUserName } = useData();
   const navigate = useNavigate();
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
 
-  const onDrop = useCallback(async (acceptedFiles) => {
-    setUploadedFiles(acceptedFiles);
-    setUploadProgress('Processing files...');
+  const processZipClientSide = async (file) => {
+    setUploadProgress('Processing ZIP file in browser...');
     
     try {
-      // Handle multiple files
-      if (acceptedFiles.length > 1) {
-        // Multiple JSON files - create a ZIP
-        setUploadProgress('Creating ZIP from multiple files...');
-        const zip = new JSZip();
-        
-        for (const file of acceptedFiles) {
-          const content = await file.text();
-          zip.file(file.name, content);
-        }
-        
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const zipFile = new File([zipBlob], 'messages.zip', { type: 'application/zip' });
-        
-        setUploadProgress('Uploading and analyzing data...');
-        const success = await uploadFile(zipFile);
-        if (success) {
-          setUploadedFiles([]);
-          setUploadProgress('');
-          navigate("/");
-        }
-        return;
-      }
+      const zip = new JSZip();
+      const zipContent = await zip.loadAsync(file);
       
-      // Single file
-      const file = acceptedFiles[0];
+      setUploadProgress('Scanning message folders...');
       
-      if (file.name.endsWith('.json')) {
-        // Single JSON file
-        setUploadProgress('Processing JSON file...');
-        
-        // Try to extract user name from the JSON
-        try {
-          const content = await file.text();
-          const json = JSON.parse(content);
-          if (json.participants && json.participants.length >= 2) {
-            const userName = json.participants[1].name;
-            setUserName(userName);
-          }
-        } catch (e) {
-          console.log('Could not extract user name from JSON');
-        }
-        
-        setUploadProgress('Uploading and analyzing data...');
-        const success = await uploadFile(file);
-        if (success) {
-          setUploadedFiles([]);
-          setUploadProgress('');
-          navigate("/");
-        }
-        return;
-      }
+      // Find all message files
+      const messageFiles = [];
+      const friendFolders = new Map();
       
-      // ZIP file - extract user name
-      setUploadProgress('Reading ZIP file...');
-      try {
-        const zip = await JSZip.loadAsync(file);
-        // Find the first message_1.json file in the inbox
-        let messageFile = null;
-        for (const path in zip.files) {
-          if (path.includes('messages/inbox/') && path.endsWith('message_1.json')) {
-            messageFile = path;
-            break;
+      for (const [filePath, zipFile] of Object.entries(zipContent.files)) {
+        if (filePath.includes('messages/inbox/') && filePath.endsWith('.json')) {
+          messageFiles.push(filePath);
+          
+          // Extract friend folder name
+          const parts = filePath.split('/');
+          const inboxIndex = parts.indexOf('inbox');
+          if (inboxIndex !== -1 && inboxIndex + 1 < parts.length) {
+            const friendFolder = parts[inboxIndex + 1];
+            if (!friendFolders.has(friendFolder)) {
+              friendFolders.set(friendFolder, []);
+            }
+            friendFolders.get(friendFolder).push(filePath);
           }
         }
-        if (messageFile) {
-          const content = await zip.file(messageFile).async('string');
-          const json = JSON.parse(content);
-          if (json.participants && json.participants.length >= 2) {
-            const userName = json.participants[1].name;
-            setUserName(userName);
-          }
-        }
-      } catch (e) {
-        console.log('Could not extract user name from ZIP');
       }
       
-      setUploadProgress('Uploading and analyzing data...');
-      const success = await uploadFile(file);
+      setUploadProgress(`Found ${friendFolders.size} friends, extracting data...`);
+      
+      // Process each friend folder
+      const friends = [];
+      let friendId = 0;
+      
+      for (const [folderName, files] of friendFolders) {
+        // Find the first message file to get participant info
+        const firstMessageFile = files.find(f => f.endsWith('message_1.json'));
+        
+        if (firstMessageFile) {
+          try {
+            const content = await zipFile.get(firstMessageFile).async('string');
+            const chatData = JSON.parse(content);
+            
+            if (chatData.participants && chatData.participants.length === 2) {
+              // Get friend name (assume second participant is the friend)
+              const friendName = chatData.participants[1]?.name || folderName.replace('_', ' ').title();
+              
+              // Extract messages for this friend
+              const friendMessages = [];
+              for (const filePath of files) {
+                try {
+                  const fileContent = await zipFile.get(filePath).async('string');
+                  const fileData = JSON.parse(fileContent);
+                  if (fileData.messages) {
+                    friendMessages.push(...fileData.messages);
+                  }
+                } catch (e) {
+                  console.log(`Error reading ${filePath}:`, e);
+                }
+              }
+              
+              friends.push({
+                id: friendId++,
+                name: friendName,
+                chat_folder: folderName,
+                message_files: files.length,
+                total_messages: friendMessages.length,
+                messages: friendMessages.slice(-1000), // Keep last 1000 messages
+                analyzed: false
+              });
+            }
+          } catch (e) {
+            console.log(`Error processing ${folderName}:`, e);
+          }
+        }
+      }
+      
+      setUploadProgress(`Processed ${friends.length} friends, uploading data...`);
+      
+      // Create a data object to send to backend
+      const processedData = {
+        friends: friends,
+        user_name: 'User', // Will be updated by backend
+        session_id: Date.now().toString()
+      };
+      
+             // Send processed data to backend
+       const success = await sendProcessedData(processedData);
       if (success) {
         setUploadedFiles([]);
         setUploadProgress('');
         navigate("/");
       }
       
-    } catch (e) {
-      console.error('Upload error:', e);
-      setUploadProgress('');
+    } catch (error) {
+      console.error('Error processing ZIP:', error);
+      setUploadProgress('Error processing ZIP file');
       setUploadedFiles([]);
     }
-  }, [uploadFile, setUserName, navigate]);
+  };
+
+  const sendProcessedData = async (data) => {
+    return await uploadProcessedData(data);
+  };
+
+  const onDrop = useCallback(async (acceptedFiles) => {
+    const file = acceptedFiles[0];
+    if (file) {
+      setUploadedFiles(acceptedFiles);
+      
+      if (file.name.endsWith('.zip')) {
+        // Process ZIP client-side
+        await processZipClientSide(file);
+      } else if (file.name.endsWith('.json')) {
+        // Handle single JSON file
+        setUploadProgress('Processing JSON file...');
+        const success = await uploadFile(file);
+        if (success) {
+          setUploadedFiles([]);
+          setUploadProgress('');
+          navigate("/");
+        }
+      }
+    }
+  }, [uploadFile, navigate]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -116,16 +147,10 @@ const FileUpload = () => {
       'application/x-zip-compressed': ['.zip'],
       'application/json': ['.json']
     },
-    multiple: true
+    multiple: false
   });
 
-  const removeFile = (index) => {
-    const newFiles = uploadedFiles.filter((_, i) => i !== index);
-    setUploadedFiles(newFiles);
-    setUploadProgress('');
-  };
-
-  const removeAllFiles = () => {
+  const removeFile = () => {
     setUploadedFiles([]);
     setUploadProgress('');
   };
@@ -147,53 +172,26 @@ const FileUpload = () => {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-3"
+            className="flex items-center justify-center space-x-3"
           >
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                {uploadedFiles.length} file(s) selected
-              </h3>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeAllFiles();
-                }}
-                className="text-sm text-red-500 hover:text-red-700"
-              >
-                Remove all
-              </button>
+            <File className="h-8 w-8 text-primary-600" />
+            <div className="text-left">
+              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                {uploadedFiles[0].name}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {(uploadedFiles[0].size / 1024 / 1024).toFixed(2)} MB
+              </p>
             </div>
-            
-            <div className="space-y-2 max-h-40 overflow-y-auto">
-              {uploadedFiles.map((file, index) => (
-                <div key={index} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded p-2">
-                  <div className="flex items-center space-x-2">
-                    {file.name.endsWith('.json') ? (
-                      <FileText className="h-4 w-4 text-blue-600" />
-                    ) : (
-                      <File className="h-4 w-4 text-green-600" />
-                    )}
-                    <div className="text-left">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        {file.name}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {(file.size / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeFile(index);
-                    }}
-                    className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                removeFile();
+              }}
+              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </motion.div>
         ) : (
           <div className="space-y-4">
@@ -209,7 +207,7 @@ const FileUpload = () => {
                 {isDragActive ? 'Drop your messages here' : 'Upload Instagram Messages'}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                Upload the messages folder or individual message files for faster processing
+                Client-side processing - no large file uploads!
               </p>
               
               <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 text-left">
@@ -220,30 +218,26 @@ const FileUpload = () => {
                   <li>1. Go to Instagram Settings → Privacy and Security → Data Download</li>
                   <li>2. Request your data and wait for the email</li>
                   <li>3. Download and extract the ZIP file</li>
-                  <li>4. Navigate to: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">your_instagram_activity/messages/</code></li>
-                  <li>5. Upload the entire <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">messages</code> folder or individual JSON files</li>
+                  <li>4. Navigate to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">your_instagram_activity/messages/</code></li>
+                  <li>5. Zip the entire <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">messages</code> folder</li>
+                  <li>6. Upload the messages ZIP - processed in your browser!</li>
                 </ol>
               </div>
               
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-3">
-                  <div className="flex items-center space-x-2 mb-1">
-                    <Folder className="h-4 w-4 text-blue-600" />
-                    <span className="text-xs font-medium text-blue-900 dark:text-blue-100">Option 1: Messages Folder</span>
+              <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-3">
+                <div className="flex items-start space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-green-900 dark:text-green-100 mb-1">
+                      Client-Side Processing
+                    </p>
+                    <ul className="text-xs text-green-700 dark:text-green-300 space-y-1">
+                      <li>• ZIP processed in your browser</li>
+                      <li>• Only extracted data sent to server</li>
+                      <li>• No large file uploads</li>
+                      <li>• Much faster processing</li>
+                    </ul>
                   </div>
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    Zip the entire <code>messages</code> folder and upload
-                  </p>
-                </div>
-                
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-3">
-                  <div className="flex items-center space-x-2 mb-1">
-                    <FileText className="h-4 w-4 text-green-600" />
-                    <span className="text-xs font-medium text-green-900 dark:text-green-100">Option 2: Individual Files</span>
-                  </div>
-                  <p className="text-xs text-green-700 dark:text-green-300">
-                    Upload multiple <code>message_*.json</code> files directly
-                  </p>
                 </div>
               </div>
             </div>
@@ -270,7 +264,7 @@ const FileUpload = () => {
               </p>
               <div className="flex items-center justify-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
                 <Clock className="h-3 w-3" />
-                <span>Lightning fast - no file extraction needed!</span>
+                <span>Processing in your browser - no server upload!</span>
               </div>
             </div>
           )}
@@ -283,10 +277,10 @@ const FileUpload = () => {
                   What's happening?
                 </p>
                 <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                  <li>• Reading ZIP directly (no extraction)</li>
-                  <li>• Scanning message folders</li>
-                  <li>• Building friend list instantly</li>
-                  <li>• Ready to browse immediately</li>
+                  <li>• Reading ZIP file in your browser</li>
+                  <li>• Extracting message data locally</li>
+                  <li>• Sending only processed data to server</li>
+                  <li>• Building your friend list instantly</li>
                 </ul>
               </div>
             </div>

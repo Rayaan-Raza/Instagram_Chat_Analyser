@@ -31,6 +31,34 @@ export const DataProvider = ({ children }) => {
   const [userName, setUserName] = useState('Rayaan Raza');
   const [sessionId, setSessionId] = useState(null);
 
+  const uploadProcessedData = async (processedData) => {
+    setIsLoading(true);
+    
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/upload-processed`, processedData, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.data.success) {
+        setSessionId(response.data.session_id);
+        setFriends(response.data.friends);
+        toast.success('Data processed successfully!');
+        return true;
+      } else {
+        toast.error(response.data.error || 'Processing failed');
+        return false;
+      }
+    } catch (error) {
+      console.error('Processing error:', error);
+      toast.error(error.response?.data?.error || 'Processing failed');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const uploadFile = async (file) => {
     setIsLoading(true);
     const formData = new FormData();
@@ -168,6 +196,7 @@ export const DataProvider = ({ children }) => {
     setUserName,
     sessionId,
     uploadFile,
+    uploadProcessedData,
     getFriendAnalysis,
     getFriendDetails,
     getQuickStats,

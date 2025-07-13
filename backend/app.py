@@ -740,6 +740,40 @@ def analyze_network_data(session_id, user_name):
         'categories': categories
     }, None
 
+@app.route('/api/upload-processed', methods=['POST'])
+def upload_processed_data():
+    """Receive processed data from client-side ZIP processing."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'friends' not in data:
+            return jsonify({'success': False, 'error': 'Invalid data format'})
+        
+        # Generate session ID
+        session_id = str(uuid.uuid4())
+        
+        # Store session data
+        sessions[session_id] = {
+            'user_name': data.get('user_name', 'User'),
+            'friends': data['friends'],
+            'created_at': datetime.now().isoformat(),
+            'analysis_complete': True,
+            'client_processed': True  # Mark as client-processed
+        }
+        
+        print(f"Received {len(data['friends'])} friends from client-side processing")
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'friends': data['friends'],
+            'message': f'Successfully processed {len(data["friends"])} friends!'
+        })
+        
+    except Exception as e:
+        print(f"Error processing uploaded data: {str(e)}")
+        return jsonify({'success': False, 'error': f'Processing failed: {str(e)}'})
+
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
     """Handle file upload and data extraction."""
