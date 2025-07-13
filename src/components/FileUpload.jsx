@@ -66,7 +66,7 @@ const FileUpload = () => {
         
         if (firstMessageFile) {
           try {
-            const content = await zipFile.get(firstMessageFile).async('string');
+            const content = await zipContent.file(firstMessageFile).async('string');
             const chatData = JSON.parse(content);
             
             if (chatData.participants && chatData.participants.length === 2) {
@@ -77,7 +77,7 @@ const FileUpload = () => {
               const friendMessages = [];
               for (const filePath of files) {
                 try {
-                  const fileContent = await zipFile.get(filePath).async('string');
+                  const fileContent = await zipContent.file(filePath).async('string');
                   const fileData = JSON.parse(fileContent);
                   if (fileData.messages) {
                     friendMessages.push(...fileData.messages);
