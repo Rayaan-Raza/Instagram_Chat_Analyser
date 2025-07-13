@@ -1,0 +1,74 @@
+# -----------------------------
+# 🚫 General Project Ignores
+# -----------------------------
+uploads/
+backend/uploads/
+node_modules/
+dist/
+build/
+
+# -----------------------------
+# 💻 OS-generated junk files
+# -----------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.Trash*
+
+# -----------------------------
+# 🧠 Editor/IDE folders
+# -----------------------------
+.vscode/
+.idea/
+
+# -----------------------------
+# 🐍 Python
+# -----------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyo
+*.py[cod]
+*.egg
+*.egg-info/
+*.sqlite3
+env/
+ENV/
+env.bak/
+.venv/
+venv/
+
+# -----------------------------
+# 📦 JavaScript/Node
+# -----------------------------
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# -----------------------------
+# 🌐 Environment config
+# -----------------------------
+.env
+.env.*
+!.env.example
+
+# -----------------------------
+# 📓 Jupyter Notebooks
+# -----------------------------
+.ipynb_checkpoints/
+
+# -----------------------------
+# 🔥 Deployment Cache
+# -----------------------------
+.vercel
+.netlify
+.render
+
+# -----------------------------
+# 🔧 Misc
+# -----------------------------
+*.log
+*.swp
+*.swo
