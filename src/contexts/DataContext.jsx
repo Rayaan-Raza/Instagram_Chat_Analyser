@@ -4,6 +4,16 @@ import axios from 'axios';
 
 const DataContext = createContext();
 
+// Get API base URL from environment variable or use relative URL for development
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
+// Debug logging
+console.log('Environment check:', {
+  VITE_API_URL: import.meta.env.VITE_API_URL,
+  API_BASE_URL: API_BASE_URL,
+  NODE_ENV: import.meta.env.NODE_ENV
+});
+
 export const useData = () => {
   const context = useContext(DataContext);
   if (!context) {
@@ -28,7 +38,7 @@ export const DataProvider = ({ children }) => {
     formData.append('user_name', userName);
 
     try {
-      const response = await axios.post('/api/upload', formData, {
+      const response = await axios.post(`${API_BASE_URL}/api/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -57,7 +67,7 @@ export const DataProvider = ({ children }) => {
 
     setIsLoading(true);
     try {
-      const response = await axios.get(`/api/analysis/${friendId}?session_id=${sessionId}`);
+      const response = await axios.get(`${API_BASE_URL}/api/analysis/${friendId}?session_id=${sessionId}`);
       
       if (response.data.success) {
         setFriendAnalysis(prev => ({
@@ -83,7 +93,7 @@ export const DataProvider = ({ children }) => {
 
     setIsLoading(true);
     try {
-      const response = await axios.get(`/api/network?session_id=${sessionId}`);
+      const response = await axios.get(`${API_BASE_URL}/api/network?session_id=${sessionId}`);
       
       if (response.data.success) {
         setNetworkAnalysis(response.data.network);
