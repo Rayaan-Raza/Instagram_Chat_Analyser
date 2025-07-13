@@ -270,7 +270,7 @@ const FileUpload = () => {
               </p>
               <div className="flex items-center justify-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
                 <Clock className="h-3 w-3" />
-                <span>This should be much faster now!</span>
+                <span>Quick processing - should complete in seconds!</span>
               </div>
             </div>
           )}
@@ -283,10 +283,10 @@ const FileUpload = () => {
                   What's happening?
                 </p>
                 <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                  <li>• Processing your message files</li>
-                  <li>• Analyzing conversation patterns and timing</li>
-                  <li>• Processing emoji usage and word frequency</li>
-                  <li>• Building your social network graph</li>
+                  <li>• Quickly scanning message files</li>
+                  <li>• Extracting friend list</li>
+                  <li>• Preparing for analysis</li>
+                  <li>• Detailed analysis loads on demand</li>
                 </ul>
               </div>
             </div>

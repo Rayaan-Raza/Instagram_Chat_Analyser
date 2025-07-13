@@ -26,6 +26,18 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Store session data (in production, use Redis or database)
 sessions = {}
+# Cache for analyzed friend data
+friend_cache = {}
+
+def get_cached_analysis(friend_id, session_id):
+    """Get cached analysis for a friend."""
+    cache_key = f"{session_id}_{friend_id}"
+    return friend_cache.get(cache_key)
+
+def cache_analysis(friend_id, session_id, analysis):
+    """Cache analysis for a friend."""
+    cache_key = f"{session_id}_{friend_id}"
+    friend_cache[cache_key] = analysis
 
 def log_memory_usage(stage):
     """Log memory usage for debugging."""
@@ -62,13 +74,13 @@ def extract_messages_from_zip(zip_path, session_id, user_name):
         if not inbox_path:
             return None, "Could not find messages inbox folder. Please ensure you're uploading the messages folder from your Instagram data."
         
-        # Extract friends list with memory optimization
+        # Extract friends list with minimal processing (lazy loading)
         friends = []
         added_names = set()
         chat_folders = list(inbox_path.iterdir())
         
         # Process in smaller batches
-        batch_size = 10
+        batch_size = 20  # Increased batch size for faster processing
         for i in range(0, len(chat_folders), batch_size):
             batch = chat_folders[i:i + batch_size]
             
@@ -77,6 +89,7 @@ def extract_messages_from_zip(zip_path, session_id, user_name):
                     message_files = list(chat_folder.glob("message_*.json"))
                     if message_files:
                         try:
+                            # Only read the first message file to get participant info
                             with open(message_files[0], 'r', encoding='utf-8') as f:
                                 chat_data = json.load(f)
                             # Only include one-to-one chats (exactly 2 participants: user and one other)
@@ -85,10 +98,17 @@ def extract_messages_from_zip(zip_path, session_id, user_name):
                                     if 'name' in participant:
                                         friend_name = participant['name']
                                         if friend_name != user_name and friend_name not in added_names:
+                                            # Get basic stats without full analysis
+                                            total_messages = 0
+                                            if 'messages' in chat_data:
+                                                total_messages = len(chat_data['messages'])
+                                            
                                             friends.append({
                                                 'id': len(friends),
                                                 'name': friend_name,
-                                                'chat_folder': chat_folder.name
+                                                'chat_folder': chat_folder.name,
+                                                'total_messages': total_messages,
+                                                'analyzed': False  # Mark as not analyzed yet
                                             })
                                             added_names.add(friend_name)
                         except Exception as e:
@@ -199,13 +219,26 @@ def analyze_friend_data(friend_id, session_id, user_name):
             if not chat_folder.exists():
                 return None, "Chat folder not found"
         
-        # Collect all messages with memory optimization
+        # Collect messages with smart sampling for faster processing
         all_messages = []
         message_files = sorted(chat_folder.glob("message_*.json"))
         
         log_memory_usage("start of friend analysis")
         
-        for msg_file in message_files:
+        # Smart sampling: take recent messages and sample older ones
+        total_files = len(message_files)
+        if total_files > 5:
+            # Take all recent files (last 3) and sample older ones
+            recent_files = message_files[-3:]
+            older_files = message_files[:-3]
+            
+            # Sample older files (take every 3rd file)
+            sampled_older = older_files[::3]
+            files_to_process = recent_files + sampled_older
+        else:
+            files_to_process = message_files
+        
+        for msg_file in files_to_process:
             try:
                 with open(msg_file, 'r', encoding='utf-8') as f:
                     chat_data = json.load(f)
@@ -520,7 +553,7 @@ def analyze_friend_data(friend_id, session_id, user_name):
         else:
             messages_per_day = 0
 
-        return {
+        analysis_result = {
             'friend': friend,
             'total_messages': total_messages,
             'your_messages': your_messages,
@@ -563,7 +596,10 @@ def analyze_friend_data(friend_id, session_id, user_name):
             # Friendship intensity
             'friendship_intensity': friendship_intensity,
             'friendship_rating': 'Very High' if friendship_intensity >= 80 else 'High' if friendship_intensity >= 60 else 'Moderate' if friendship_intensity >= 40 else 'Low'
-        }, None
+        }
+        
+        cache_analysis(friend_id, session_id, analysis_result)
+        return analysis_result, None
     except Exception as e:
         print(f"Error in analyze_friend_data for friend_id {friend_id}: {e}")
         return None, f"Error analyzing friend: {e}"
@@ -709,6 +745,32 @@ def upload_file():
             os.remove(zip_path)
         return jsonify({'success': False, 'error': f'Analysis failed: {str(e)}'})
 
+@app.route('/api/quick-stats/<friend_id>', methods=['GET'])
+def get_quick_stats(friend_id):
+    """Get quick stats for a friend without full analysis."""
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return jsonify({'success': False, 'error': 'Session ID required'})
+    
+    session_data = sessions.get(session_id)
+    if not session_data:
+        return jsonify({'success': False, 'error': 'Session not found'})
+    
+    friends = session_data['friends']
+    friend = next((f for f in friends if f['id'] == int(friend_id)), None)
+    if not friend:
+        return jsonify({'success': False, 'error': 'Friend not found'})
+    
+    # Return basic stats without full analysis
+    return jsonify({
+        'success': True,
+        'quick_stats': {
+            'name': friend['name'],
+            'total_messages': friend.get('total_messages', 0),
+            'analyzed': friend.get('analyzed', False)
+        }
+    })
+
 @app.route('/api/progress/<session_id>', methods=['GET'])
 def get_progress(session_id):
     """Get analysis progress for a session."""
@@ -734,6 +796,13 @@ def get_friend_analysis(friend_id):
     if not session_data:
         return jsonify({'success': False, 'error': 'Session not found'})
     
+    cached_analysis = get_cached_analysis(friend_id, session_id)
+    if cached_analysis:
+        return jsonify({
+            'success': True,
+            'analysis': cached_analysis
+        })
+
     analysis, error = analyze_friend_data(friend_id, session_id, session_data['user_name'])
     
     if error:

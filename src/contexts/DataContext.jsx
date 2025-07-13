@@ -111,6 +111,25 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+  const getQuickStats = async (friendId) => {
+    if (!sessionId) return;
+
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/quick-stats/${friendId}?session_id=${sessionId}`);
+      
+      if (response.data.success) {
+        return response.data.quick_stats;
+      } else {
+        toast.error(response.data.error || 'Failed to get quick stats');
+        return null;
+      }
+    } catch (error) {
+      console.error('Quick stats error:', error);
+      toast.error(error.response?.data?.error || 'Failed to get quick stats');
+      return null;
+    }
+  };
+
   const clearData = () => {
     setFriends([]);
     setSelectedFriend(null);
@@ -131,6 +150,7 @@ export const DataProvider = ({ children }) => {
     sessionId,
     uploadFile,
     getFriendAnalysis,
+    getQuickStats,
     getNetworkAnalysis,
     clearData,
   };
