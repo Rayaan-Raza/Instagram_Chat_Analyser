@@ -7,7 +7,7 @@ import { Upload, File, X, CheckCircle, Clock, BarChart3, Folder, FileText } from
 import { useData } from '../contexts/DataContext';
 
 const FileUpload = () => {
-  const { uploadFile, uploadProcessedData, isLoading, setUserName } = useData();
+  const { uploadFile, uploadProcessedData, isLoading, setUserName, userName } = useData();
   const navigate = useNavigate();
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
@@ -70,8 +70,8 @@ const FileUpload = () => {
             const chatData = JSON.parse(content);
             
             if (chatData.participants && chatData.participants.length === 2) {
-              // Get friend name (assume second participant is the friend)
-              const friendName = chatData.participants[1]?.name || folderName.replace('_', ' ').title();
+              // In Instagram data, first participant is the friend, second is the user
+              const friendName = chatData.participants[0]?.name || folderName.replace('_', ' ').title();
               
               // Extract messages for this friend
               const friendMessages = [];
@@ -111,7 +111,7 @@ const FileUpload = () => {
       // Create a data object to send to backend
       const processedData = {
         friends: friends,
-        user_name: 'User', // Will be updated by backend
+        user_name: userName || 'User', // Use actual user name
         session_id: Date.now().toString()
       };
       

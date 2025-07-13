@@ -315,18 +315,31 @@ def analyze_friend_data(friend_id, session_id, user_name):
                 }
             }
             
-            # If we have messages, do basic analysis
+            # If we have messages, do comprehensive analysis
             if messages:
+                # Sort messages by timestamp
+                messages.sort(key=lambda x: x.get('timestamp_ms', 0))
+                
+                # Basic message counts
                 your_messages = sum(1 for msg in messages if msg.get('sender_name') == user_name)
                 their_messages = len(messages) - your_messages
                 
                 if len(messages) > 0:
                     analysis['your_percentage'] = round((your_messages / len(messages)) * 100, 1)
                 
-                # Basic word analysis if content is available
+                # Calculate friendship duration
+                timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('timestamp_ms', 0)]
+                if timestamps:
+                    first_timestamp = min(timestamps)
+                    last_timestamp = max(timestamps)
+                    duration_ms = last_timestamp - first_timestamp
+                    analysis['friendship_duration_days'] = max(1, duration_ms / (1000 * 60 * 60 * 24))
+                
+                # Content analysis
                 your_content = [msg.get('content', '') for msg in messages if msg.get('sender_name') == user_name and msg.get('content')]
                 their_content = [msg.get('content', '') for msg in messages if msg.get('sender_name') == friend['name'] and msg.get('content')]
                 
+                # Word analysis
                 if your_content:
                     import re
                     words = []
@@ -342,6 +355,64 @@ def analyze_friend_data(friend_id, session_id, user_name):
                         clean_words = re.findall(r'\b[a-zA-Z]+\b', content.lower())
                         words.extend([word for word in clean_words if len(word) > 2])
                     analysis['content_analysis']['their_words'] = Counter(words).most_common(10)
+                
+                # Timing analysis
+                your_timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('sender_name') == user_name and msg.get('timestamp_ms', 0)]
+                their_timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('sender_name') == friend['name'] and msg.get('timestamp_ms', 0)]
+                
+                if your_timestamps:
+                    from datetime import datetime
+                    your_hours = [datetime.fromtimestamp(ts / 1000).hour for ts in your_timestamps]
+                    your_days = [datetime.fromtimestamp(ts / 1000).strftime('%A') for ts in your_timestamps]
+                    
+                    hour_counts = Counter(your_hours)
+                    day_counts = Counter(your_days)
+                    
+                    analysis['timing_analysis']['your_timing']['peak_hour'] = hour_counts.most_common(1)[0][0] if hour_counts else 12
+                    analysis['timing_analysis']['your_timing']['peak_day'] = day_counts.most_common(1)[0][0] if day_counts else 'Monday'
+                
+                if their_timestamps:
+                    from datetime import datetime
+                    their_hours = [datetime.fromtimestamp(ts / 1000).hour for ts in their_timestamps]
+                    their_days = [datetime.fromtimestamp(ts / 1000).strftime('%A') for ts in their_timestamps]
+                    
+                    hour_counts = Counter(their_hours)
+                    day_counts = Counter(their_days)
+                    
+                    analysis['timing_analysis']['their_timing']['peak_hour'] = hour_counts.most_common(1)[0][0] if hour_counts else 12
+                    analysis['timing_analysis']['their_timing']['peak_day'] = day_counts.most_common(1)[0][0] if day_counts else 'Monday'
+                
+                # Response time analysis
+                response_times = []
+                for i in range(len(messages) - 1):
+                    current_msg = messages[i]
+                    next_msg = messages[i + 1]
+                    
+                    current_sender = current_msg.get('sender_name', '')
+                    next_sender = next_msg.get('sender_name', '')
+                    
+                    if current_sender != next_sender:  # Different senders
+                        current_time = current_msg.get('timestamp_ms', 0)
+                        next_time = next_msg.get('timestamp_ms', 0)
+                        
+                        if current_time > 0 and next_time > 0:
+                            response_time = (next_time - current_time) / (1000 * 60)  # in minutes
+                            if response_time > 0 and response_time < 1440:  # Less than 24 hours
+                                response_times.append(response_time)
+                
+                if response_times:
+                    avg_response = sum(response_times) / len(response_times)
+                    analysis['response_time_analysis']['your_avg_response'] = round(avg_response, 1)
+                    analysis['response_time_analysis']['their_avg_response'] = round(avg_response, 1)
+                
+                # Message length analysis
+                if your_content:
+                    avg_length = sum(len(content) for content in your_content) / len(your_content)
+                    analysis['message_length_analysis']['your_avg_length'] = round(avg_length, 1)
+                
+                if their_content:
+                    avg_length = sum(len(content) for content in their_content) / len(their_content)
+                    analysis['message_length_analysis']['their_avg_length'] = round(avg_length, 1)
             
             return analysis, None
         
