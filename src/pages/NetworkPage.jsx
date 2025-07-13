@@ -10,7 +10,7 @@ import { Info } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
 const NetworkPage = () => {
-  const { sessionId } = useData();
+  const { getNetworkAnalysis, isLoading } = useData();
   const [networkData, setNetworkData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -18,21 +18,18 @@ const NetworkPage = () => {
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
   useEffect(() => {
-    if (sessionId) {
-      fetchNetworkData();
-    }
-  }, [sessionId]);
+    fetchNetworkData();
+  }, []);
 
   const fetchNetworkData = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/network?session_id=${sessionId}`);
-      const data = await response.json();
+      const networkAnalysis = await getNetworkAnalysis();
       
-      if (data.success) {
-        setNetworkData(data.network);
+      if (networkAnalysis) {
+        setNetworkData(networkAnalysis);
       } else {
-        setError(data.error);
+        setError('Failed to fetch network data');
       }
     } catch (err) {
       setError('Failed to fetch network data');

@@ -20,7 +20,7 @@ const CustomTooltip = ({ text }) => (
 
 const FriendAnalysisPage = () => {
   const { friendId } = useParams();
-  const { sessionId } = useData();
+  const { getFriendAnalysis, isLoading } = useData();
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -28,21 +28,20 @@ const FriendAnalysisPage = () => {
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
   useEffect(() => {
-    if (sessionId && friendId) {
+    if (friendId) {
       fetchAnalysis();
     }
-  }, [sessionId, friendId]);
+  }, [friendId]);
 
   const fetchAnalysis = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/analysis/${friendId}?session_id=${sessionId}`);
-      const data = await response.json();
+      const analysisData = await getFriendAnalysis(friendId);
       
-      if (data.success) {
-        setAnalysis(data.analysis);
+      if (analysisData) {
+        setAnalysis(analysisData);
       } else {
-        setError(data.error);
+        setError('Failed to fetch analysis data');
       }
     } catch (err) {
       setError('Failed to fetch analysis data');
