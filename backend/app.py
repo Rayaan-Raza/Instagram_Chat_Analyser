@@ -260,6 +260,7 @@ def analyze_friend_data(friend_id, session_id, user_name):
         
         # Check if this is client-side processed data
         if session_data.get('client_processed'):
+            print(f"Processing client-side data for friend {friend['name']} (ID: {friend_id})")
             # For client-side processed data, return basic analysis from available data
             total_messages = friend.get('total_messages', 0)
             if isinstance(total_messages, str):
@@ -267,6 +268,9 @@ def analyze_friend_data(friend_id, session_id, user_name):
             
             # Get messages from client-side data if available
             messages = friend.get('messages', [])
+            print(f"Found {len(messages)} messages for {friend['name']}")
+            print(f"User name: {user_name}")
+            print(f"Friend name: {friend['name']}")
             
             # Create basic analysis
             analysis = {
@@ -317,15 +321,21 @@ def analyze_friend_data(friend_id, session_id, user_name):
             
             # If we have messages, do comprehensive analysis
             if messages:
+                print(f"Starting analysis for {len(messages)} messages")
                 # Sort messages by timestamp
                 messages.sort(key=lambda x: x.get('timestamp_ms', 0))
                 
                 # Basic message counts
                 your_messages = sum(1 for msg in messages if msg.get('sender_name') == user_name)
                 their_messages = len(messages) - your_messages
+                print(f"Your messages: {your_messages}, Their messages: {their_messages}")
                 
                 if len(messages) > 0:
                     analysis['your_percentage'] = round((your_messages / len(messages)) * 100, 1)
+                
+                # Add message counts to the analysis
+                analysis['your_messages'] = your_messages
+                analysis['their_messages'] = their_messages
                 
                 # Calculate friendship duration
                 timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('timestamp_ms', 0)]
@@ -370,6 +380,10 @@ def analyze_friend_data(friend_id, session_id, user_name):
                     
                     analysis['timing_analysis']['your_timing']['peak_hour'] = hour_counts.most_common(1)[0][0] if hour_counts else 12
                     analysis['timing_analysis']['your_timing']['peak_day'] = day_counts.most_common(1)[0][0] if day_counts else 'Monday'
+                    
+                    # Add hourly and daily data arrays
+                    analysis['timing_analysis']['your_timing']['hourly'] = [{'hour': hour, 'count': count} for hour, count in hour_counts.most_common(24)]
+                    analysis['timing_analysis']['your_timing']['daily'] = [{'day': day, 'count': count} for day, count in day_counts.items()]
                 
                 if their_timestamps:
                     from datetime import datetime
@@ -381,6 +395,10 @@ def analyze_friend_data(friend_id, session_id, user_name):
                     
                     analysis['timing_analysis']['their_timing']['peak_hour'] = hour_counts.most_common(1)[0][0] if hour_counts else 12
                     analysis['timing_analysis']['their_timing']['peak_day'] = day_counts.most_common(1)[0][0] if day_counts else 'Monday'
+                    
+                    # Add hourly and daily data arrays
+                    analysis['timing_analysis']['their_timing']['hourly'] = [{'hour': hour, 'count': count} for hour, count in hour_counts.most_common(24)]
+                    analysis['timing_analysis']['their_timing']['daily'] = [{'day': day, 'count': count} for day, count in day_counts.items()]
                 
                 # Response time analysis
                 response_times = []

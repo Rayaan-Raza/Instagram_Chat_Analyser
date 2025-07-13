@@ -42,11 +42,13 @@ export const DataProvider = ({ children }) => {
       });
 
       if (response.data.success) {
+        console.log('Upload successful, sessionId:', response.data.session_id);
         setSessionId(response.data.session_id);
         setFriends(response.data.friends);
         toast.success('Data processed successfully!');
         return true;
       } else {
+        console.error('Upload failed:', response.data.error);
         toast.error(response.data.error || 'Processing failed');
         return false;
       }
@@ -91,11 +93,16 @@ export const DataProvider = ({ children }) => {
   };
 
   const getFriendAnalysis = async (friendId) => {
-    if (!sessionId) return;
+    console.log('getFriendAnalysis called with friendId:', friendId, 'sessionId:', sessionId);
+    if (!sessionId) {
+      console.error('No sessionId available');
+      return null;
+    }
 
     setIsLoading(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/api/analysis/${friendId}?session_id=${sessionId}`);
+      console.log('Analysis response:', response.data);
       
       if (response.data.success) {
         setFriendAnalysis(prev => ({
@@ -104,6 +111,7 @@ export const DataProvider = ({ children }) => {
         }));
         return response.data.analysis;
       } else {
+        console.error('Analysis failed:', response.data.error);
         toast.error(response.data.error || 'Failed to get analysis');
         return null;
       }
