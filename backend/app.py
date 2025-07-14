@@ -19,7 +19,7 @@ CORS(app)
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # Reduced to 50MB max file size
-MAX_MESSAGES_PER_FRIEND = 1000  # Limit messages per friend to prevent memory issues
+# MAX_MESSAGES_PER_FRIEND = 1000  # Limit messages per friend to prevent memory issues
 
 # Ensure upload directory exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -261,484 +261,174 @@ def analyze_friend_data(friend_id, session_id, user_name):
         # Check if this is client-side processed data
         if session_data.get('client_processed'):
             print(f"Processing client-side data for friend {friend['name']} (ID: {friend_id})")
-            # For client-side processed data, return basic analysis from available data
-            total_messages = friend.get('total_messages', 0)
-            if isinstance(total_messages, str):
-                total_messages = 0
-            
-            # Get messages from client-side data if available
             messages = friend.get('messages', [])
             print(f"Found {len(messages)} messages for {friend['name']}")
             print(f"User name: {user_name}")
             print(f"Friend name: {friend['name']}")
-            
-            # Create basic analysis
-            analysis = {
-                'friend': {
-                    'id': friend['id'],
-                    'name': friend['name']
-                },
-                'total_messages': total_messages,
-                'message_files': friend.get('message_files', 0),
-                'friendship_duration_days': 365,  # Default assumption
-                'your_percentage': 50,  # Default assumption
-                'their_avg_response': 0,  # Default assumption
-                'your_avg_response': 0,  # Default assumption
-                'most_active_hour': 12,  # Default assumption
-                'most_active_day': 'Monday',  # Default assumption
-                'top_words': [],
-                'top_emojis': [],
-                'friendship_intensity': 'medium',
-                'response_time_analysis': {
-                    'your_avg_response': 0,
-                    'their_avg_response': 0,
-                    'response_categories': {}
-                },
-                'timing_analysis': {
-                    'your_timing': {
-                        'peak_hour': 12,
-                        'peak_day': 'Monday',
-                        'time_periods': {'morning': 0, 'afternoon': 0, 'evening': 0, 'night': 0}
-                    },
-                    'their_timing': {
-                        'peak_hour': 12,
-                        'peak_day': 'Monday',
-                        'time_periods': {'morning': 0, 'afternoon': 0, 'evening': 0, 'night': 0}
-                    }
-                },
-                'content_analysis': {
-                    'your_words': [],
-                    'their_words': [],
-                    'your_emojis': [],
-                    'their_emojis': [],
-                    'shared_content': []
-                },
-                'message_length_analysis': {
-                    'your_avg_length': 0,
-                    'their_avg_length': 0
+            if not messages:
+                return None, "No messages found for this friend"
+            messages.sort(key=lambda x: x.get('timestamp_ms', 0))
+            total_messages = len(messages)
+            your_messages = sum(1 for msg in messages if msg.get('sender_name') == user_name)
+            their_messages = total_messages - your_messages
+            timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('timestamp_ms', 0)]
+            first_timestamp = min(timestamps) if timestamps else None
+            last_timestamp = max(timestamps) if timestamps else None
+            friendship_duration_days = 0
+            if first_timestamp and last_timestamp and last_timestamp > first_timestamp:
+                duration_seconds = (last_timestamp - first_timestamp) / 1000
+                friendship_duration_days = duration_seconds / 86400
+            else:
+                friendship_duration_days = 0
+            messages_per_day = total_messages / friendship_duration_days if friendship_duration_days > 0 else 0
+            your_content = [msg.get('content', '') for msg in messages if msg.get('sender_name') == user_name and msg.get('content')]
+            their_content = [msg.get('content', '') for msg in messages if msg.get('sender_name') == friend['name'] and msg.get('content')]
+            # --- Robust stopword filtering ---
+            stopwords = set([
+                'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what', 'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me', 'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us',
+                'oh', 'yeah', 'yes', 'no', 'ok', 'okay', 'haha', 'lol', 'omg', 'wow', 'hey', 'hi', 'hello', 'bye', 'goodbye', 'thanks', 'thank',
+                'sent', 'used', 'am', 'as', 'were', 'was', 'is', 'are', 'did', 'had', 'has', 'u', 'im', 'dont', 'cant', 'wont', 'didnt', 'doesnt', 'should', 'shouldnt', 'couldnt', 'wouldnt', 'instagram', 'photo', 'video', 'reel', 'story', 'message', 'messages', 'chat', 'call', 'missed', 'unsent', 'attachment', 'replied', 'reply', 'link', 'shared', 'sticker', 'gif', 'voice', 'media', 'group', 'sent a photo', 'sent a video', 'sent a reel', 'sent an attachment', 'unsent a message', 'reacted to', 'video call', 'missed video call', 'you sent an attachment', 'you unsent a message', 'this message is no longer available', 'sent a voice message', 'sent a sticker', 'sent a gif', 'sent a story reply', 'replied to your story', 'replied to story', 'sent a story reply'
+            ])
+            # Add user name and variants to stopwords for your words
+            your_stopwords = set(stopwords)
+            if user_name:
+                your_stopwords.add(user_name.lower())
+                for part in user_name.lower().split():
+                    your_stopwords.add(part)
+                your_stopwords.add(user_name)
+            # Add friend's name and variants to stopwords for their words
+            their_stopwords = set(stopwords)
+            if friend['name']:
+                their_stopwords.add(friend['name'].lower())
+                for part in friend['name'].lower().split():
+                    their_stopwords.add(part)
+                their_stopwords.add(friend['name'])
+            import re
+            def analyze_words(content_list, stopwords_set):
+                words = []
+                for content in content_list:
+                    clean_words = re.findall(r'\b[a-zA-Z]+\b', content.lower())
+                    filtered_words = [word for word in clean_words if word not in stopwords_set and len(word) > 2]
+                    words.extend(filtered_words)
+                return Counter(words).most_common(15)
+            your_words = analyze_words(your_content, your_stopwords)
+            their_words = analyze_words(their_content, their_stopwords)
+            from datetime import datetime
+            your_timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('sender_name') == user_name and msg.get('timestamp_ms', 0)]
+            their_timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('sender_name') == friend['name'] and msg.get('timestamp_ms', 0)]
+            your_hours = [datetime.fromtimestamp(ts / 1000).hour for ts in your_timestamps]
+            your_days = [datetime.fromtimestamp(ts / 1000).strftime('%A') for ts in your_timestamps]
+            their_hours = [datetime.fromtimestamp(ts / 1000).hour for ts in their_timestamps]
+            their_days = [datetime.fromtimestamp(ts / 1000).strftime('%A') for ts in their_timestamps]
+            hour_counts = Counter(your_hours)
+            day_counts = Counter(your_days)
+            their_hour_counts = Counter(their_hours)
+            their_day_counts = Counter(their_days)
+            your_timing = {
+                'peak_hour': hour_counts.most_common(1)[0][0] if hour_counts else 12,
+                'peak_day': day_counts.most_common(1)[0][0] if day_counts else 'Monday',
+                'hourly': [{'hour': hour, 'count': count} for hour, count in sorted(hour_counts.items())],
+                'daily': [{'day': day, 'count': count} for day, count in day_counts.items()]
+            }
+            their_timing = {
+                'peak_hour': their_hour_counts.most_common(1)[0][0] if their_hour_counts else 12,
+                'peak_day': their_day_counts.most_common(1)[0][0] if their_day_counts else 'Monday',
+                'hourly': [{'hour': hour, 'count': count} for hour, count in sorted(their_hour_counts.items())],
+                'daily': [{'day': day, 'count': count} for day, count in their_day_counts.items()]
+            }
+            # --- Response time analysis ---
+            response_times = []
+            conversation_gaps = []
+            for i in range(len(messages) - 1):
+                current_msg = messages[i]
+                next_msg = messages[i + 1]
+                current_sender = current_msg.get('sender_name', '')
+                next_sender = next_msg.get('sender_name', '')
+                current_time = current_msg.get('timestamp_ms', 0)
+                next_time = next_msg.get('timestamp_ms', 0)
+                if current_time > 0 and next_time > 0:
+                    time_diff_seconds = (next_time - current_time) / 1000
+                    time_diff_hours = time_diff_seconds / 3600
+                    if time_diff_hours > 24:
+                        gap_start = datetime.fromtimestamp(current_time / 1000)
+                        gap_end = datetime.fromtimestamp(next_time / 1000)
+                        conversation_gaps.append({
+                            'start': gap_start.isoformat(),
+                            'end': gap_end.isoformat(),
+                            'duration_hours': time_diff_hours,
+                            'duration_days': time_diff_hours / 24
+                        })
+                    if time_diff_hours <= 24 and current_sender != next_sender:
+                        response_times.append({
+                            'from': current_sender,
+                            'to': next_sender,
+                            'time': time_diff_seconds
+                        })
+            your_response_times = [rt['time'] for rt in response_times if rt['to'] == user_name]
+            their_response_times = [rt['time'] for rt in response_times if rt['to'] == friend['name']]
+            def categorize_response_times(response_times):
+                if not response_times:
+                    return {}
+                instant = sum(1 for t in response_times if t < 60)
+                quick = sum(1 for t in response_times if 60 <= t < 300)
+                normal = sum(1 for t in response_times if 300 <= t < 3600)
+                slow = sum(1 for t in response_times if 3600 <= t < 86400)
+                very_slow = sum(1 for t in response_times if t >= 86400)
+                total = len(response_times)
+                return {
+                    'instant': {'count': instant, 'percentage': (instant/total)*100 if total > 0 else 0},
+                    'quick': {'count': quick, 'percentage': (quick/total)*100 if total > 0 else 0},
+                    'normal': {'count': normal, 'percentage': (normal/total)*100 if total > 0 else 0},
+                    'slow': {'count': slow, 'percentage': (slow/total)*100 if total > 0 else 0},
+                    'very_slow': {'count': very_slow, 'percentage': (very_slow/total)*100 if total > 0 else 0}
                 }
-            }
-            
-            # If we have messages, do comprehensive analysis
-            if messages:
-                print(f"Starting analysis for {len(messages)} messages")
-                # Sort messages by timestamp
-                messages.sort(key=lambda x: x.get('timestamp_ms', 0))
-                
-                # Basic message counts
-                your_messages = sum(1 for msg in messages if msg.get('sender_name') == user_name)
-                their_messages = len(messages) - your_messages
-                print(f"Your messages: {your_messages}, Their messages: {their_messages}")
-                
-                if len(messages) > 0:
-                    analysis['your_percentage'] = round((your_messages / len(messages)) * 100, 1)
-                
-                # Add message counts to the analysis
-                analysis['your_messages'] = your_messages
-                analysis['their_messages'] = their_messages
-                
-                # Calculate friendship duration
-                timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('timestamp_ms', 0)]
-                if timestamps:
-                    first_timestamp = min(timestamps)
-                    last_timestamp = max(timestamps)
-                    duration_ms = last_timestamp - first_timestamp
-                    analysis['friendship_duration_days'] = max(1, duration_ms / (1000 * 60 * 60 * 24))
-                
-                # Content analysis
-                your_content = [msg.get('content', '') for msg in messages if msg.get('sender_name') == user_name and msg.get('content')]
-                their_content = [msg.get('content', '') for msg in messages if msg.get('sender_name') == friend['name'] and msg.get('content')]
-                
-                # Word analysis
-                if your_content:
-                    import re
-                    words = []
-                    for content in your_content:
-                        clean_words = re.findall(r'\b[a-zA-Z]+\b', content.lower())
-                        words.extend([word for word in clean_words if len(word) > 2])
-                    analysis['content_analysis']['your_words'] = Counter(words).most_common(10)
-                
-                if their_content:
-                    import re
-                    words = []
-                    for content in their_content:
-                        clean_words = re.findall(r'\b[a-zA-Z]+\b', content.lower())
-                        words.extend([word for word in clean_words if len(word) > 2])
-                    analysis['content_analysis']['their_words'] = Counter(words).most_common(10)
-                
-                # Timing analysis
-                your_timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('sender_name') == user_name and msg.get('timestamp_ms', 0)]
-                their_timestamps = [msg.get('timestamp_ms', 0) for msg in messages if msg.get('sender_name') == friend['name'] and msg.get('timestamp_ms', 0)]
-                
-                if your_timestamps:
-                    from datetime import datetime
-                    your_hours = [datetime.fromtimestamp(ts / 1000).hour for ts in your_timestamps]
-                    your_days = [datetime.fromtimestamp(ts / 1000).strftime('%A') for ts in your_timestamps]
-                    
-                    hour_counts = Counter(your_hours)
-                    day_counts = Counter(your_days)
-                    
-                    analysis['timing_analysis']['your_timing']['peak_hour'] = hour_counts.most_common(1)[0][0] if hour_counts else 12
-                    analysis['timing_analysis']['your_timing']['peak_day'] = day_counts.most_common(1)[0][0] if day_counts else 'Monday'
-                    
-                    # Add hourly and daily data arrays
-                    analysis['timing_analysis']['your_timing']['hourly'] = [{'hour': hour, 'count': count} for hour, count in hour_counts.most_common(24)]
-                    analysis['timing_analysis']['your_timing']['daily'] = [{'day': day, 'count': count} for day, count in day_counts.items()]
-                
-                if their_timestamps:
-                    from datetime import datetime
-                    their_hours = [datetime.fromtimestamp(ts / 1000).hour for ts in their_timestamps]
-                    their_days = [datetime.fromtimestamp(ts / 1000).strftime('%A') for ts in their_timestamps]
-                    
-                    hour_counts = Counter(their_hours)
-                    day_counts = Counter(their_days)
-                    
-                    analysis['timing_analysis']['their_timing']['peak_hour'] = hour_counts.most_common(1)[0][0] if hour_counts else 12
-                    analysis['timing_analysis']['their_timing']['peak_day'] = day_counts.most_common(1)[0][0] if day_counts else 'Monday'
-                    
-                    # Add hourly and daily data arrays
-                    analysis['timing_analysis']['their_timing']['hourly'] = [{'hour': hour, 'count': count} for hour, count in hour_counts.most_common(24)]
-                    analysis['timing_analysis']['their_timing']['daily'] = [{'day': day, 'count': count} for day, count in day_counts.items()]
-                
-                # Response time analysis
-                response_times = []
-                for i in range(len(messages) - 1):
-                    current_msg = messages[i]
-                    next_msg = messages[i + 1]
-                    
-                    current_sender = current_msg.get('sender_name', '')
-                    next_sender = next_msg.get('sender_name', '')
-                    
-                    if current_sender != next_sender:  # Different senders
-                        current_time = current_msg.get('timestamp_ms', 0)
-                        next_time = next_msg.get('timestamp_ms', 0)
-                        
-                        if current_time > 0 and next_time > 0:
-                            response_time = (next_time - current_time) / (1000 * 60)  # in minutes
-                            if response_time > 0 and response_time < 1440:  # Less than 24 hours
-                                response_times.append(response_time)
-                
-                if response_times:
-                    avg_response = sum(response_times) / len(response_times)
-                    analysis['response_time_analysis']['your_avg_response'] = round(avg_response, 1)
-                    analysis['response_time_analysis']['their_avg_response'] = round(avg_response, 1)
-                
-                # Message length analysis
-                if your_content:
-                    avg_length = sum(len(content) for content in your_content) / len(your_content)
-                    analysis['message_length_analysis']['your_avg_length'] = round(avg_length, 1)
-                
-                if their_content:
-                    avg_length = sum(len(content) for content in their_content) / len(their_content)
-                    analysis['message_length_analysis']['their_avg_length'] = round(avg_length, 1)
-            
-            return analysis, None
-        
-        extract_path = os.path.join(UPLOAD_FOLDER, session_id)
-        
-        # Handle different file structures
-        if friend.get('chat_folder') == 'direct_upload':
-            # Direct JSON file upload
-            file_path = friend.get('file_path')
-            if not file_path or not os.path.exists(file_path):
-                return None, "Uploaded file not found"
-            
-            # Read the single JSON file
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    chat_data = json.load(f)
-                all_messages = chat_data.get('messages', [])
-            except Exception as e:
-                return None, f"Error reading uploaded file: {str(e)}"
-        else:
-            # Read directly from ZIP file
-            zip_path = friend.get('zip_path')
-            if not zip_path or not os.path.exists(zip_path):
-                return None, "ZIP file not found"
-            
-            # Read messages directly from ZIP
-            all_messages = []
-            try:
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    # Find all message files for this friend
-                    chat_folder_prefix = f"messages/inbox/{friend['chat_folder']}/"
-                    message_files = [f for f in zip_ref.namelist() if f.startswith(chat_folder_prefix) and 'message_' in f]
-                    
-                    # Sort message files
-                    message_files.sort()
-                    
-                    # Smart sampling: take recent files and sample older ones
-                    total_files = len(message_files)
-                    if total_files > 5:
-                        # Take all recent files (last 3) and sample older ones
-                        recent_files = message_files[-3:]
-                        older_files = message_files[:-3]
-                        
-                        # Sample older files (take every 3rd file)
-                        sampled_older = older_files[::3]
-                        files_to_process = recent_files + sampled_older
-                    else:
-                        files_to_process = message_files
-                    
-                    for msg_file in files_to_process:
-                        try:
-                            with zip_ref.open(msg_file) as f:
-                                chat_data = json.load(f)
-                            if 'messages' in chat_data:
-                                all_messages.extend(chat_data['messages'])
-                                
-                                # Limit messages to prevent memory issues
-                                if len(all_messages) > MAX_MESSAGES_PER_FRIEND:
-                                    all_messages = all_messages[-MAX_MESSAGES_PER_FRIEND:]
-                                    print(f"Limited messages to {MAX_MESSAGES_PER_FRIEND} for {friend['name']}")
-                                    break
-                        except Exception as e:
-                            print(f"Error reading {msg_file}: {e}")
-                            continue
-                            
-            except Exception as e:
-                return None, f"Error reading from ZIP: {str(e)}"
-        
-        # Messages are already collected from ZIP above
-        log_memory_usage("start of friend analysis")
-        
-        if not all_messages:
-            return None, "No messages found"
-        
-        # Sort messages by timestamp
-        all_messages.sort(key=lambda x: x.get('timestamp_ms', 0))
-        
-        # Basic statistics
-        total_messages = len(all_messages)
-        your_messages = sum(1 for msg in all_messages if msg.get('sender_name') == user_name)
-        their_messages = total_messages - your_messages
-        
-        # Timestamps
-        timestamps = [msg.get('timestamp_ms', 0) for msg in all_messages if msg.get('timestamp_ms', 0)]
-        first_timestamp = min(timestamps) if timestamps else None
-        last_timestamp = max(timestamps) if timestamps else None
-        
-        # Message content analysis with better filtering
-        def filter_content(content):
-            if not content or not content.strip():
-                return False
-            
-            # Skip placeholder messages
-            placeholder_phrases = [
-                "sent a photo", "sent a video", "sent a reel", "sent an attachment",
-                "unsent a message", "reacted to", "video call", "missed video call",
-                "you sent an attachment", "you unsent a message", "this message is no longer available",
-                "sent a voice message", "sent a sticker", "sent a gif", "sent a story reply"
-            ]
-            
-            content_lower = content.lower()
-            if any(phrase in content_lower for phrase in placeholder_phrases):
-                return False
-            
-            return True
-        
-        your_content = [msg.get('content', '') for msg in all_messages 
-                       if msg.get('sender_name') == user_name and filter_content(msg.get('content', ''))]
-        their_content = [msg.get('content', '') for msg in all_messages 
-                        if msg.get('sender_name') == friend['name'] and filter_content(msg.get('content', ''))]
-        
-        # Enhanced word analysis
-        stopwords = {
-            'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what', 'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me', 'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us',
-            'oh', 'yeah', 'yes', 'no', 'ok', 'okay', 'haha', 'lol', 'omg', 'wow', 'hey', 'hi', 'hello', 'bye', 'goodbye', 'thanks', 'thank'
-        }
-        
-        def analyze_words(content_list):
-            words = []
-            for content in content_list:
-                # Clean and tokenize
-                import re
-                clean_words = re.findall(r'\b[a-zA-Z]+\b', content.lower())
-                filtered_words = [word for word in clean_words if word not in stopwords and len(word) > 2]
-                words.extend(filtered_words)
-            return Counter(words).most_common(15)
-        
-        your_words = analyze_words(your_content)
-        their_words = analyze_words(their_content)
-        
-        # Enhanced emoji analysis
-        def analyze_emojis(content_list):
-            emojis = []
-            for content in content_list:
-                emojis.extend([e['emoji'] for e in emoji.emoji_list(content)])
-            return Counter(emojis).most_common(15)
-        
-        your_emojis = analyze_emojis(your_content)
-        their_emojis = analyze_emojis(their_content)
-        
-        # Enhanced timing analysis
-        def analyze_timing(messages, sender_name):
-            sender_messages = [msg for msg in messages if msg.get('sender_name') == sender_name]
-            timestamps = [msg.get('timestamp_ms', 0) for msg in sender_messages if msg.get('timestamp_ms', 0)]
-            
-            if not timestamps:
-                return {}
-            
-            datetimes = [datetime.fromtimestamp(ts / 1000) for ts in timestamps]
-            hours = [dt.hour for dt in datetimes]
-            days = [dt.strftime('%A') for dt in datetimes]
-            months = [dt.strftime('%B') for dt in datetimes]
-            
-            hour_counts = Counter(hours)
-            day_counts = Counter(days)
-            month_counts = Counter(months)
-            
-            # Time period analysis
-            morning_count = sum(1 for h in hours if 6 <= h < 12)
-            afternoon_count = sum(1 for h in hours if 12 <= h < 18)
-            evening_count = sum(1 for h in hours if 18 <= h < 22)
-            night_count = sum(1 for h in hours if h >= 22 or h < 6)
-            
-            return {
-                'hourly': [{'hour': hour, 'count': count} for hour, count in hour_counts.most_common(24)],
-                'daily': [{'day': day, 'count': count} for day, count in day_counts.items()],
-                'monthly': [{'month': month, 'count': count} for month, count in month_counts.items()],
-                'peak_hour': hour_counts.most_common(1)[0][0] if hour_counts else None,
-                'peak_day': day_counts.most_common(1)[0][0] if day_counts else None,
-                'time_periods': {
-                    'morning': morning_count,
-                    'afternoon': afternoon_count,
-                    'evening': evening_count,
-                    'night': night_count
-                }
-            }
-        
-        your_timing = analyze_timing(all_messages, user_name)
-        their_timing = analyze_timing(all_messages, friend['name'])
-        
-        # Enhanced response time analysis
-        response_times = []
-        conversation_gaps = []
-        
-        for i in range(len(all_messages) - 1):
-            current_msg = all_messages[i]
-            next_msg = all_messages[i + 1]
-            
-            current_sender = current_msg.get('sender_name', '')
-            next_sender = next_msg.get('sender_name', '')
-            current_time = current_msg.get('timestamp_ms', 0)
-            next_time = next_msg.get('timestamp_ms', 0)
-            
-            if current_time > 0 and next_time > 0:
-                time_diff_seconds = (next_time - current_time) / 1000
-                time_diff_hours = time_diff_seconds / 3600
-                
-                # Track conversation gaps (more than 24 hours)
-                if time_diff_hours > 24:
-                    gap_start = datetime.fromtimestamp(current_time / 1000)
-                    gap_end = datetime.fromtimestamp(next_time / 1000)
-                    conversation_gaps.append({
-                        'start': gap_start.isoformat(),
-                        'end': gap_end.isoformat(),
-                        'duration_hours': time_diff_hours,
-                        'duration_days': time_diff_hours / 24
-                    })
-                
-                # Calculate response times (only for actual responses, not gaps)
-                if time_diff_hours <= 24 and current_sender != next_sender:
-                    response_times.append({
-                        'from': current_sender,
-                        'to': next_sender,
-                        'time': time_diff_seconds
-                    })
-        
-        your_response_times = [rt['time'] for rt in response_times if rt['to'] == user_name]
-        their_response_times = [rt['time'] for rt in response_times if rt['to'] == friend['name']]
-        
-        # Response time categories
-        def categorize_response_times(response_times):
-            if not response_times:
-                return {}
-            
-            instant = sum(1 for t in response_times if t < 60)
-            quick = sum(1 for t in response_times if 60 <= t < 300)
-            normal = sum(1 for t in response_times if 300 <= t < 3600)
-            slow = sum(1 for t in response_times if 3600 <= t < 86400)
-            very_slow = sum(1 for t in response_times if t >= 86400)
-            
-            total = len(response_times)
-            return {
-                'instant': {'count': instant, 'percentage': (instant/total)*100 if total > 0 else 0},
-                'quick': {'count': quick, 'percentage': (quick/total)*100 if total > 0 else 0},
-                'normal': {'count': normal, 'percentage': (normal/total)*100 if total > 0 else 0},
-                'slow': {'count': slow, 'percentage': (slow/total)*100 if total > 0 else 0},
-                'very_slow': {'count': very_slow, 'percentage': (very_slow/total)*100 if total > 0 else 0}
-            }
-        
-        your_response_categories = categorize_response_times(your_response_times)
-        their_response_categories = categorize_response_times(their_response_times)
-        
-        # Enhanced post sharing analysis
-        def analyze_shared_content(message_list):
-            instagram_posts = 0
-            instagram_reels = 0
-            instagram_stories = 0
-            other_links = 0
-            story_replies = 0
-            for msg in message_list:
-                content = msg.get('content', '') or ''
-                content_lower = content.lower()
-                # Story reply detection
-                is_story_reply = False
-                # 1. Literal phrases
-                if 'replied to your story' in content_lower or 'sent a story reply' in content_lower or 'replied to story' in content_lower:
-                    is_story_reply = True
-                # 2. Short text with media (photo/video)
-                elif (('photos' in msg or 'videos' in msg) and (len(content.strip()) <= 10 or (len(content.strip()) == 1 and emoji.is_emoji(content.strip())))):
-                    is_story_reply = True
-                if is_story_reply:
-                    story_replies += 1
-                    continue  # Don't double-count as other link
-                # Check for shared links
-                share = msg.get('share')
-                if share and 'link' in share:
-                    link = share['link']
-                    if 'instagram.com/p/' in link or 'ig.me/p/' in link:
-                        instagram_posts += 1
-                    elif 'instagram.com/reel/' in link or 'ig.me/reel/' in link:
-                        instagram_reels += 1
-                    elif 'instagram.com/stories/' in link:
-                        instagram_stories += 1
-                    else:
+            your_response_categories = categorize_response_times(your_response_times)
+            their_response_categories = categorize_response_times(their_response_times)
+            # --- Shared content analysis ---
+            def analyze_shared_content(message_list):
+                instagram_posts = 0
+                instagram_reels = 0
+                instagram_stories = 0
+                other_links = 0
+                story_replies = 0
+                for msg in message_list:
+                    content = msg.get('content', '') or ''
+                    content_lower = content.lower()
+                    is_story_reply = False
+                    if 'replied to your story' in content_lower or 'sent a story reply' in content_lower or 'replied to story' in content_lower:
+                        is_story_reply = True
+                    elif (('photos' in msg or 'videos' in msg) and (len(content.strip()) <= 10 or (len(content.strip()) == 1 and emoji.is_emoji(content.strip())))):
+                        is_story_reply = True
+                    if is_story_reply:
+                        story_replies += 1
+                        continue
+                    share = msg.get('share')
+                    if share and 'link' in share:
+                        link = share['link']
+                        if 'instagram.com/p/' in link or 'ig.me/p/' in link:
+                            instagram_posts += 1
+                        elif 'instagram.com/reel/' in link or 'ig.me/reel/' in link:
+                            instagram_reels += 1
+                        elif 'instagram.com/stories/' in link:
+                            instagram_stories += 1
+                        else:
+                            other_links += 1
+                    elif content.startswith('http'):
                         other_links += 1
-                elif content.startswith('http'):
-                    other_links += 1
-            return {
-                'instagram_posts': instagram_posts,
-                'instagram_reels': instagram_reels,
-                'instagram_stories': instagram_stories,
-                'story_replies': story_replies,
-                'other_links': other_links,
-                'total_shared': instagram_posts + instagram_reels + instagram_stories + story_replies + other_links
-            }
-        
-        your_shared_content = analyze_shared_content([msg for msg in all_messages if msg.get('sender_name') == user_name])
-        their_shared_content = analyze_shared_content([msg for msg in all_messages if msg.get('sender_name') != user_name])
-        
-        # Message length analysis
-        def analyze_message_lengths(content_list):
-            if not content_list:
-                return {'avg_length': 0, 'longest': 0, 'shortest': 0}
-            
-            lengths = [len(content.split()) for content in content_list]
-            return {
-                'avg_length': sum(lengths) / len(lengths),
-                'longest': max(lengths),
-                'shortest': min(lengths)
-            }
-        
-        your_lengths = analyze_message_lengths(your_content)
-        their_lengths = analyze_message_lengths(their_content)
-        
-        # Friendship intensity score
-        def calculate_friendship_intensity():
+                return {
+                    'instagram_posts': instagram_posts,
+                    'instagram_reels': instagram_reels,
+                    'instagram_stories': instagram_stories,
+                    'story_replies': story_replies,
+                    'other_links': other_links,
+                    'total_shared': instagram_posts + instagram_reels + instagram_stories + story_replies + other_links
+                }
+            your_shared_content = analyze_shared_content([msg for msg in messages if msg.get('sender_name') == user_name])
+            their_shared_content = analyze_shared_content([msg for msg in messages if msg.get('sender_name') != user_name])
+            your_avg_length = sum(len(content) for content in your_content) / len(your_content) if your_content else 0
+            their_avg_length = sum(len(content) for content in their_content) / len(their_content) if their_content else 0
+            # --- Friendship intensity (improved version) ---
             score = 0
-            
             # Message volume (0-30 points)
             if total_messages >= 1000:
                 score += 30
@@ -750,19 +440,27 @@ def analyze_friend_data(friend_id, session_id, user_name):
                 score += 10
             elif total_messages >= 50:
                 score += 5
-            
             # Response speed (0-25 points)
-            if their_response_times:
-                avg_response = sum(their_response_times) / len(their_response_times)
-                if avg_response < 300:  # Less than 5 minutes
+            # Use both your and their response times
+            avg_your_response = sum(your_response_times) / len(your_response_times) if your_response_times else None
+            avg_their_response = sum(their_response_times) / len(their_response_times) if their_response_times else None
+            if avg_your_response is not None and avg_their_response is not None:
+                avg_response = (avg_your_response + avg_their_response) / 2
+            elif avg_your_response is not None:
+                avg_response = avg_your_response
+            elif avg_their_response is not None:
+                avg_response = avg_their_response
+            else:
+                avg_response = None
+            if avg_response is not None:
+                if avg_response < 300:  # <5 min
                     score += 25
-                elif avg_response < 1800:  # Less than 30 minutes
+                elif avg_response < 1800:  # <30 min
                     score += 20
-                elif avg_response < 3600:  # Less than 1 hour
+                elif avg_response < 3600:  # <1 hour
                     score += 15
-                elif avg_response < 86400:  # Less than 1 day
+                elif avg_response < 86400:  # <1 day
                     score += 10
-            
             # Conversation gaps (0-25 points)
             if len(conversation_gaps) == 0:
                 score += 25
@@ -772,7 +470,6 @@ def analyze_friend_data(friend_id, session_id, user_name):
                 score += 15
             elif len(conversation_gaps) <= 20:
                 score += 10
-            
             # Balance (0-20 points)
             if total_messages > 0:
                 balance = abs(50 - (your_messages / total_messages * 100))
@@ -782,26 +479,9 @@ def analyze_friend_data(friend_id, session_id, user_name):
                     score += 15
                 elif balance <= 30:
                     score += 10
-            
-            return min(score, 100)
-        
-        friendship_intensity = calculate_friendship_intensity()
-        
-        # Calculate friendship duration
-        friendship_duration_days = 0
-        if first_timestamp and last_timestamp and last_timestamp > first_timestamp:
-            duration_seconds = (last_timestamp - first_timestamp) / 1000
-            friendship_duration_days = duration_seconds / 86400
-        else:
-            friendship_duration_days = 0
-
-        # Calculate messages per day safely
-        if friendship_duration_days > 0:
-            messages_per_day = total_messages / friendship_duration_days
-        else:
-            messages_per_day = 0
-
-        analysis_result = {
+            friendship_intensity = min(score, 100)
+            friendship_rating = 'Very High' if friendship_intensity >= 80 else 'High' if friendship_intensity >= 60 else 'Moderate' if friendship_intensity >= 40 else 'Low'
+            analysis = {
             'friend': friend,
             'total_messages': total_messages,
             'your_messages': your_messages,
@@ -812,42 +492,27 @@ def analyze_friend_data(friend_id, session_id, user_name):
             'last_message': datetime.fromtimestamp(last_timestamp / 1000).isoformat() if last_timestamp else None,
             'friendship_duration_days': friendship_duration_days,
             'messages_per_day': messages_per_day,
-            
-            # Enhanced content analysis
             'your_words': your_words,
             'their_words': their_words,
-            'your_emojis': your_emojis,
-            'their_emojis': their_emojis,
-            'your_lengths': your_lengths,
-            'their_lengths': their_lengths,
-            
-            # Enhanced timing analysis
+                'your_lengths': {'avg_length': your_avg_length, 'longest': max([len(c) for c in your_content], default=0)},
+                'their_lengths': {'avg_length': their_avg_length, 'longest': max([len(c) for c in their_content], default=0)},
             'your_timing': your_timing,
             'their_timing': their_timing,
-            
-            # Enhanced response analysis
             'your_avg_response': sum(your_response_times) / len(your_response_times) if your_response_times else 0,
             'their_avg_response': sum(their_response_times) / len(their_response_times) if their_response_times else 0,
             'your_response_categories': your_response_categories,
             'their_response_categories': their_response_categories,
             'your_response_count': len(your_response_times),
             'their_response_count': len(their_response_times),
-            
-            # Enhanced sharing analysis
             'your_shared_content': your_shared_content,
             'their_shared_content': their_shared_content,
-            
-            # Conversation gaps
             'conversation_gaps': conversation_gaps,
             'gap_count': len(conversation_gaps),
-            
-            # Friendship intensity
             'friendship_intensity': friendship_intensity,
-            'friendship_rating': 'Very High' if friendship_intensity >= 80 else 'High' if friendship_intensity >= 60 else 'Moderate' if friendship_intensity >= 40 else 'Low'
+                'friendship_rating': friendship_rating
         }
-        
-        cache_analysis(friend_id, session_id, analysis_result)
-        return analysis_result, None
+            cache_analysis(friend_id, session_id, analysis)
+            return analysis, None
     except Exception as e:
         print(f"Error in analyze_friend_data for friend_id {friend_id}: {e}")
         return None, f"Error analyzing friend: {e}"
@@ -857,47 +522,20 @@ def analyze_network_data(session_id, user_name):
     session_data = sessions.get(session_id)
     if not session_data:
         return None, "Session not found"
-    
     friends = session_data['friends']
-    
     # Check if this is client-side processed data
     if session_data.get('client_processed'):
-        # For client-side processed data, create basic network analysis from available data
         network_data = []
-        
         for friend in friends:
-            # Create basic analysis from client-side data
-            total_messages = friend.get('total_messages', 0)
-            if isinstance(total_messages, str):
-                total_messages = 0
-            
-            # Create a basic friend analysis object
-            friend_analysis = {
-                'friend': {
-                    'id': friend['id'],
-                    'name': friend['name']
-                },
-                'total_messages': total_messages,
-                'message_files': friend.get('message_files', 0),
-                'friendship_duration_days': 365,  # Default assumption
-                'your_percentage': 50,  # Default assumption
-                'their_avg_response': 0,  # Default assumption
-                'your_avg_response': 0,  # Default assumption
-                'most_active_hour': 12,  # Default assumption
-                'most_active_day': 'Monday',  # Default assumption
-                'top_words': [],
-                'top_emojis': [],
-                'friendship_intensity': 'medium'
-            }
-            network_data.append(friend_analysis)
-        
+            analysis, error = analyze_friend_data(friend['id'], session_id, user_name)
+            if analysis:
+                network_data.append(analysis)
         if not network_data:
             return None, "No network data available from client-side processing"
-        
-        # Sort by message count
         most_messages = sorted(network_data, key=lambda x: x['total_messages'], reverse=True)[:10]
-        
-        # Categorize friendships based on message count
+        most_balanced = sorted(network_data, key=lambda x: abs(50 - x['your_percentage']))[:10]
+        longest_friendships = sorted(network_data, key=lambda x: x['friendship_duration_days'], reverse=True)[:10]
+        fastest_responses = sorted(network_data, key=lambda x: x['their_avg_response'])[:10]
         categories = {
             'best_friends': [],
             'close_friends': [],
@@ -905,31 +543,28 @@ def analyze_network_data(session_id, user_name):
             'occasional_friends': [],
             'distant_friends': []
         }
-        
         for friend_data in network_data:
             total_messages = friend_data['total_messages']
-            
-            if total_messages >= 1000:
+            messages_per_day = total_messages / friend_data['friendship_duration_days'] if friend_data['friendship_duration_days'] > 0 else 0
+            if total_messages >= 1000 and messages_per_day >= 2:
                 categories['best_friends'].append(friend_data)
-            elif total_messages >= 500:
+            elif total_messages >= 500 and messages_per_day >= 1:
                 categories['close_friends'].append(friend_data)
-            elif total_messages >= 200:
+            elif total_messages >= 200 and messages_per_day >= 0.5:
                 categories['regular_friends'].append(friend_data)
             elif total_messages >= 50:
                 categories['occasional_friends'].append(friend_data)
             else:
                 categories['distant_friends'].append(friend_data)
-        
         return {
             'total_friends': len(network_data),
             'total_messages': sum(f['total_messages'] for f in network_data),
             'most_messages': most_messages,
-            'most_balanced': most_messages[:10],  # Use same as most_messages for now
-            'longest_friendships': most_messages[:10],  # Use same as most_messages for now
-            'fastest_responses': most_messages[:10],  # Use same as most_messages for now
+            'most_balanced': most_balanced,
+            'longest_friendships': longest_friendships,
+            'fastest_responses': fastest_responses,
             'categories': categories
         }, None
-    
     else:
         # Original server-side processing logic
         network_data = []

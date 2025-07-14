@@ -93,7 +93,7 @@ const FileUpload = () => {
                 chat_folder: folderName,
                 message_files: files.length,
                 total_messages: friendMessages.length,
-                messages: friendMessages.slice(-1000), // Keep last 1000 messages
+                messages: friendMessages, // Send ALL messages
                 analyzed: false
               });
             }
