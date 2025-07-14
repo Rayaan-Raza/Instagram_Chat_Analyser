@@ -251,7 +251,7 @@ const FileUpload = () => {
                 </p>
                 <ol className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
                   <li>1. Go to Instagram Settings → Privacy and Security → Data Download</li>
-                  <li>2. Request your data and wait for the email</li>
+                  <li>2. Request your data in json format and wait for the email</li>
                   <li>3. Download and extract the ZIP file</li>
                   <li>4. Navigate to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">your_instagram_activity/messages/</code></li>
                   <li>5. Zip the entire <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">messages</code> folder</li>
