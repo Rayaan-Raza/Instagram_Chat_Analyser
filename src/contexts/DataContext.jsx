@@ -28,7 +28,7 @@ export const DataProvider = ({ children }) => {
   const [friendAnalysis, setFriendAnalysis] = useState({});
   const [networkAnalysis, setNetworkAnalysis] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [userName, setUserName] = useState('Rayaan Raza');
+  const [userName, setUserName] = useState('');
   const [sessionId, setSessionId] = useState(null);
 
   const uploadProcessedData = async (processedData) => {

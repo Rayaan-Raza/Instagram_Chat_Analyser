@@ -54,7 +54,7 @@ const FileUpload = () => {
       let friendId = 0;
       const totalFolders = friendFolders.size;
       let processedFolders = 0;
-      
+      let detectedUserName = null;
       for (const [folderName, files] of friendFolders) {
         // Update progress for each friend processed
         const folderProgress = 30 + (processedFolders / totalFolders) * 50; // 30% to 80%
@@ -70,6 +70,11 @@ const FileUpload = () => {
             const chatData = JSON.parse(content);
             
             if (chatData.participants && chatData.participants.length === 2) {
+              // Auto-detect user name from the second participant in the first chat
+              if (!detectedUserName) {
+                detectedUserName = chatData.participants[1]?.name || '';
+                setUserName(detectedUserName);
+              }
               // In Instagram data, first participant is the friend, second is the user
               const friendName = chatData.participants[0]?.name || folderName.replace('_', ' ').title();
               
@@ -111,7 +116,7 @@ const FileUpload = () => {
       // Create a data object to send to backend
       const processedData = {
         friends: friends,
-        user_name: userName || 'User', // Use actual user name
+        user_name: detectedUserName || userName || 'User', // Use detected user name
         session_id: Date.now().toString()
       };
       
